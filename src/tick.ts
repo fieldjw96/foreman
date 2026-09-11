@@ -18,7 +18,9 @@ function cloneFor(config: Config, repo: string): string {
 
 /** Ends one Run: label the Ticket by outcome, then take the worktree back. */
 async function settle(config: Config, run: LiveRun, timedOut: boolean): Promise<void> {
-  const pr = await findPullRequest(run.repo, run.branch);
+  // Anchored to when this Run started, so a pull request from an earlier attempt on the
+  // same branch cannot be mistaken for this Run's work.
+  const pr = await findPullRequest(run.repo, run.branch, new Date(run.startedAt));
   const priorFailures = pr === null ? await countFailedAttempts(run.repo, run.issue, FAILURE_MARKER) : 0;
   const outcome = outcomeOf(pr, priorFailures, config.maxAttempts);
 

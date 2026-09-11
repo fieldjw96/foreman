@@ -62,21 +62,43 @@ export async function comment(repo: string, issue: number, body: string): Promis
 }
 
 /**
- * The success test for a Run. The agent opens its own pull request, so a branch with a
- * pull request on it is a Run that finished its job, and one without is a Run that did
- * not, whatever its exit code said. Exit codes lie; a pull request does not.
+ * The success test for a Run: an open pull request on its branch, touched since the Run
+ * began.
+ *
+ * Both halves of that matter. `--state all` would match a pull request closed weeks ago,
+ * and a Ticket that has been run before usually has exactly that, so a Run that did nothing
+ * at all would be recorded as a success. The freshness check catches the same trap one
+ * layer down: a stale *open* pull request from a previous attempt. Comparing against
+ * `updatedAt` rather than `createdAt` keeps the case where a Run pushes new commits to a
+ * pull request that already existed, which is a real success and not a new pull request.
  */
-export async function findPullRequest(repo: string, branch: string): Promise<number | null> {
+export async function findPullRequest(
+  repo: string,
+  branch: string,
+  since?: Date,
+): Promise<number | null> {
   const out = await gh([
     "pr", "list",
     "--repo", repo,
     "--head", branch,
-    "--state", "all",
-    "--limit", "1",
-    "--json", "number",
+    "--state", "open",
+    "--limit", "10",
+    "--json", "number,updatedAt",
   ]);
-  const rows = JSON.parse(out) as { number: number }[];
-  return rows[0]?.number ?? null;
+  const rows = JSON.parse(out) as { number: number; updatedAt: string }[];
+  return pickFreshPullRequest(rows, since);
+}
+
+/** Split out from the gh call so the rule itself can be tested without the network. */
+export function pickFreshPullRequest(
+  rows: { number: number; updatedAt: string }[],
+  since?: Date,
+): number | null {
+  const fresh = since
+    ? rows.filter((r) => new Date(r.updatedAt).getTime() >= since.getTime())
+    : rows;
+  // Highest number is the most recently opened.
+  return fresh.sort((a, b) => b.number - a.number)[0]?.number ?? null;
 }
 
 /** How many times a Run has already failed on this Ticket, counted from GitHub, not locally. */
