@@ -82,10 +82,21 @@ then it would need to know whether the work was finished, which means parsing an
 or reading a log. A pull request on the branch is an unambiguous signal that costs one API
 call. Exit codes lie; a pull request does not.
 
-**GitHub is the only durable state.** No database, no lock file. Every local store the old
-system kept eventually disagreed with GitHub and had to be reconciled by hand. The local
-state file holds process ids, which are meaningless anywhere else and worthless after a
-reboot, so losing it is cheap by construction.
+**GitHub is the only durable state.** No database. Every local store the old system kept
+eventually disagreed with GitHub and had to be reconciled by hand. The local state file
+holds process ids, which are meaningless anywhere else and worthless after a reboot, so
+losing it is cheap by construction.
+
+**There is a lock, and it is not the old one.** Two ticks running at once would both read
+the same state, both see free slots, and both claim the same Ticket. The scheduled task's
+`IgnoreNew` only covers the scheduled case; a person running `npm run tick` by hand races it,
+which happened during bring-up and was how this was found.
+
+The difference from the lock that was dropped is what decides staleness. The old one recorded
+a timestamp and treated a lock older than two hours as abandoned, and could only evaluate that
+from inside a tick, which was exactly the thing that was stuck. This one records a pid: if the
+holder's process is gone the lock is meaningless, whether it was taken two seconds ago or last
+week. That is a fact, not a heuristic, and it needs no timeout to tune.
 
 **The tick claims before it creates a worktree.** If the claim fails, nothing has been
 created and the next tick simply tries again.

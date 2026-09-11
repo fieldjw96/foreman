@@ -5,6 +5,7 @@ import { readState, writeState, statePath, isProcessAlive, type LiveRun } from "
 import { branchName, worktreePath, createWorktree, removeWorktree } from "./git.ts";
 import { launchRun, killRun } from "./launch.ts";
 import { classifyRun, freeSlots, chooseTickets, outcomeOf } from "./decide.ts";
+import { acquireLock, releaseLock, lockPath } from "./lock.ts";
 
 export const FAILURE_MARKER = "<!-- foreman:run-failed -->";
 
@@ -49,6 +50,20 @@ async function settle(config: Config, run: LiveRun, timedOut: boolean): Promise<
  * is the entire difference between this and the harness it replaces.
  */
 export async function tick(config: Config): Promise<void> {
+  const lock = lockPath(config.worktreeRoot);
+  const held = acquireLock(lock);
+  if (!held.ok) {
+    log(`another tick is running (pid ${held.heldBy}); doing nothing`);
+    return;
+  }
+  try {
+    await runTick(config);
+  } finally {
+    releaseLock(lock);
+  }
+}
+
+async function runTick(config: Config): Promise<void> {
   const path = statePath(config.worktreeRoot);
   const state = readState(path);
   const stillRunning: LiveRun[] = [];
