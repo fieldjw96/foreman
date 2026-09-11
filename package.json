@@ -1,0 +1,21 @@
+{
+  "name": "foreman",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Turns a GitHub Ticket into a pull request, unattended, on the always-on laptop.",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "tick": "node src/index.ts tick",
+    "status": "node src/index.ts status",
+    "stop": "node src/index.ts stop",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
