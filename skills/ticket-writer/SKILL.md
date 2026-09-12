@@ -50,6 +50,33 @@ still fuzzy and ask about that specific part. Do not file it with a softer crite
 do not invent a measurable number nobody agreed to. If it cannot be made checkable because
 it needs Jack's taste, say so plainly: that is work for a human, not a Ticket.
 
+## The final criterion must mirror CI exactly
+
+Every Ticket ends with a criterion listing the commands that must exit 0. **Read the repo's
+CI workflow and list exactly what it runs, in its order.** Do not write that list from
+memory and do not carry it over from an older Ticket.
+
+A Run satisfies the Acceptance Criteria it was given. If CI runs a check the Ticket did not
+name, the Run can meet every criterion in full and still fail, and the Ticket is what was
+wrong. This has already happened: rolodeck-ai#120 listed typecheck, lint, test and build,
+CI also ran `format:check`, and the Run failed on formatting it was never asked to check.
+
+Where a check is known to be noisy locally, say so in the criterion and say what to do
+about it, or the Run will either ignore a real failure or try to fix the noise.
+
+## Do not enumerate a set another Ticket can grow
+
+Naming the members of a set dates the Ticket the moment another Ticket adds one. Prefer the
+rule that selects them: "every Source under `lib/ingest/`" rather than a list of four
+Sources by name.
+
+This is the same failure as naming the thing a Ticket creates, and it has also already
+happened: rolodeck-ai#120 named four Sources to map, #50 added two more while #120 was
+running, and 13 tests failed against the merge on Sources the Run was never told about.
+
+When an enumeration is genuinely necessary, add the rule as well, so a Run that finds a
+member the Ticket did not list knows it is in scope rather than guessing.
+
 ## Choosing the Lane
 
 - `lane:claude` when the work depends on Skills, `CLAUDE.md`, subagents, MCP servers,
