@@ -8,7 +8,13 @@ import { classifyRun, freeSlots, chooseTickets, outcomeOf } from "./decide.ts";
 import { acquireLock, releaseLock, lockPath } from "./lock.ts";
 import { listOpenPullRequests, reviewFindings, failedCheckLog, type OpenPullRequest } from "./pulls.ts";
 import { chooseFixes, classifyPullRequest } from "./fix.ts";
-import { needsReviewRequest, lastReviewRequestAt, requestReview } from "./rereview.ts";
+import {
+  needsReviewRequest,
+  lastReviewRequestAt,
+  requestReview,
+  needsBranchUpdate,
+  updateBranch,
+} from "./rereview.ts";
 import { buildFixPrompt } from "./prompt.ts";
 import { selfUpdate } from "./selfupdate.ts";
 
@@ -126,6 +132,20 @@ async function runTick(config: Config): Promise<void> {
   // through a Windows shell, which rewrote "/review" into a file path, and nothing was ever
   // going to notice. Costs one API call per waiting pull request and asks at most once per
   // commit.
+  // Bring a stale branch up to date. The ruleset requires it before merging, and GitHub did
+  // not do it on its own even with auto-merge armed: three pull requests sat BEHIND for an
+  // hour. Updating lands a merge commit, which dismisses the approval, and the next tick then
+  // asks for a fresh review, so the cycle closes without anyone watching.
+  for (const pr of pulls) {
+    if (!needsBranchUpdate(pr.mergeState)) continue;
+    try {
+      await updateBranch(pr.repo, pr.number);
+      log(`  brought PR #${pr.number} up to date with its base`);
+    } catch (err) {
+      log(`  could not update PR #${pr.number}: ${(err as Error).message}`);
+    }
+  }
+
   for (const pr of pulls) {
     if (classifyPullRequest(pr) !== "waiting") continue;
     try {

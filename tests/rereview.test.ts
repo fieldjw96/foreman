@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { needsReviewRequest, REVIEW_COMMAND } from "../src/rereview.ts";
+import { needsReviewRequest, needsBranchUpdate, REVIEW_COMMAND } from "../src/rereview.ts";
 import type { OpenPullRequest } from "../src/pulls.ts";
 
 const VERDICT = "2026-09-13T18:22:32Z";
@@ -16,6 +16,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   gateVerdictAt: VERDICT,
   failedChecks: [],
   mergeable: "MERGEABLE",
+  mergeState: "CLEAN",
   ...over,
 });
 
@@ -71,4 +72,28 @@ describe("REVIEW_COMMAND", () => {
   it("is exactly the bare command", () => {
     expect(REVIEW_COMMAND).toBe("/review");
   });
+});
+
+describe("needsBranchUpdate", () => {
+  /**
+   * The ruleset requires a branch to be current before merging, which is what catches the
+   * stale-green case. GitHub is meant to update the branch itself once auto-merge is armed
+   * and allow_update_branch is on, and on rolodeck-ai it did not: #128, #131 and #132 all
+   * sat BEHIND with everything else green and nothing moving.
+   */
+  it("updates a branch that is merely behind", () => {
+    expect(needsBranchUpdate("BEHIND")).toBe(true);
+  });
+
+  it("is case-insensitive, because the REST and GraphQL shapes disagree", () => {
+    expect(needsBranchUpdate("behind")).toBe(true);
+  });
+
+  // A conflict is a Run's job; updating would only produce a conflicted branch.
+  it.each(["DIRTY", "CLEAN", "BLOCKED", "UNKNOWN", "UNSTABLE"])(
+    "leaves %s alone",
+    (state) => {
+      expect(needsBranchUpdate(state)).toBe(false);
+    },
+  );
 });
