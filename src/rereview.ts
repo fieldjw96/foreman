@@ -61,3 +61,30 @@ export async function lastReviewRequestAt(repo: string, pr: number): Promise<str
 export async function requestReview(repo: string, pr: number): Promise<void> {
   await gh(["pr", "comment", String(pr), "--repo", repo, "--body", REVIEW_COMMAND]);
 }
+
+/**
+ * Whether the branch merges cleanly but is out of date with its base.
+ *
+ * The ruleset requires a branch to be current before it can merge, which is the rule that
+ * catches the stale-green case: checks describe the world when they ran. GitHub is supposed
+ * to update the branch itself once auto-merge is armed and `allow_update_branch` is on, and
+ * on this repo it did not: three pull requests sat BEHIND for an hour with nothing moving.
+ *
+ * Updating is a mechanical API call, not work for an agent, so the supervisor does it for the
+ * same reason it asks for reviews rather than delegating that to a Run.
+ */
+export function needsBranchUpdate(mergeState: string): boolean {
+  return mergeState.toUpperCase() === "BEHIND";
+}
+
+/**
+ * Brings a pull request's branch up to date with its base.
+ *
+ * This lands a merge commit on the branch, which under a ruleset carrying
+ * `dismiss_stale_reviews_on_push` dismisses the Gate's approval. That is correct rather than
+ * unfortunate: the approval described different code. The next tick sees a commit newer than
+ * the verdict and asks for a fresh review, so the cycle closes on its own.
+ */
+export async function updateBranch(repo: string, pr: number): Promise<void> {
+  await gh(["pr", "update-branch", String(pr), "--repo", repo]);
+}

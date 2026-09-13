@@ -18,6 +18,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   gateVerdictAt: null,
   failedChecks: [],
   mergeable: "MERGEABLE",
+  mergeState: "CLEAN",
   ...over,
 });
 

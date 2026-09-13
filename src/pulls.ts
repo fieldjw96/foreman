@@ -19,6 +19,11 @@ export type OpenPullRequest = {
    * working it out, and must never be read as either answer.
    */
   mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+  /**
+   * GitHub's finer-grained view. "behind" is the one that matters here: the branch merges
+   * cleanly but is out of date, and the ruleset requires it to be current.
+   */
+  mergeState: string;
 };
 
 type RawReview = { author: { login: string } | null; state: string; submittedAt: string };
@@ -66,7 +71,7 @@ export async function listOpenPullRequests(
     "--limit",
     "20",
     "--json",
-    "number,headRefName,body,commits,reviews,statusCheckRollup,mergeable",
+    "number,headRefName,body,commits,reviews,statusCheckRollup,mergeable,mergeStateStatus",
   ]);
 
   const rows = JSON.parse(out) as {
@@ -77,6 +82,7 @@ export async function listOpenPullRequests(
     reviews: RawReview[] | null;
     statusCheckRollup: { name?: string; conclusion?: string }[] | null;
     mergeable: string | null;
+    mergeStateStatus: string | null;
   }[];
 
   return rows.map((row) => {
@@ -97,6 +103,7 @@ export async function listOpenPullRequests(
         row.mergeable === "MERGEABLE" || row.mergeable === "CONFLICTING"
           ? row.mergeable
           : "UNKNOWN",
+      mergeState: row.mergeStateStatus ?? "UNKNOWN",
     };
   });
 }
