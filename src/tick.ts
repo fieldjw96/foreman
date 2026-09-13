@@ -143,9 +143,11 @@ async function runTick(config: Config): Promise<void> {
         pr.repo,
         issue,
         `${FIX_MARKER}\nSending a Run back to pull request #${pr.number}: ` +
-          (pr.failedChecks.length > 0
-            ? `checks are red (${pr.failedChecks.join(", ")}).`
-            : "the review Gate asked for changes."),
+          (pr.mergeable === "CONFLICTING"
+            ? "it no longer merges into the base branch."
+            : pr.failedChecks.length > 0
+              ? `checks are red (${pr.failedChecks.join(", ")}).`
+              : "the review Gate asked for changes."),
       );
       await setStatus(pr.repo, issue, STATUS.running, ALL_STATUSES);
       await checkoutExistingBranch(repo.clonePath, worktree, pr.branch);
@@ -154,10 +156,12 @@ async function runTick(config: Config): Promise<void> {
         repo: pr.repo,
         pullRequest: pr.number,
         branch: pr.branch,
+        baseBranch: repo.baseBranch,
         issue,
         findings: await reviewFindings(pr.repo, pr.number, config.gateReviewer),
         failedChecks: pr.failedChecks,
         checkLog: pr.failedChecks.length > 0 ? await failedCheckLog(pr.repo, pr.branch) : "",
+        conflicting: pr.mergeable === "CONFLICTING",
       });
 
       const startedAt = new Date();

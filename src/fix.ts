@@ -22,6 +22,20 @@ export function classifyPullRequest(
 ): PullRequestState {
   const committedAt = new Date(pr.lastCommitAt).getTime();
 
+  /**
+   * A conflict outranks everything. A pull request that no longer merges cannot land however
+   * green its checks are or however warmly the Gate approved it, so it needs a Run whatever
+   * else is true of it.
+   *
+   * This is the failure that killed PRs #56 and #59 under the archived harness: they sat
+   * approved while other work merged beneath them, went unmergeable, and were eventually
+   * closed rather than finished. Nothing there ever noticed, because nothing was looking at
+   * mergeability.
+   *
+   * UNKNOWN is GitHub still computing, and is never read as either answer.
+   */
+  if (pr.mergeable === "CONFLICTING") return "needs-fix";
+
   // A red check is always about the current head: GitHub attaches it to the commit.
   if (pr.failedChecks.length > 0) return "needs-fix";
 
