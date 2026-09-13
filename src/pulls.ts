@@ -14,6 +14,11 @@ export type OpenPullRequest = {
   gateVerdict: "APPROVED" | "CHANGES_REQUESTED" | null;
   gateVerdictAt: string | null;
   failedChecks: string[];
+  /**
+   * GitHub's own view of whether this branch still merges. UNKNOWN means it has not finished
+   * working it out, and must never be read as either answer.
+   */
+  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 };
 
 type RawReview = { author: { login: string } | null; state: string; submittedAt: string };
@@ -61,7 +66,7 @@ export async function listOpenPullRequests(
     "--limit",
     "20",
     "--json",
-    "number,headRefName,body,commits,reviews,statusCheckRollup",
+    "number,headRefName,body,commits,reviews,statusCheckRollup,mergeable",
   ]);
 
   const rows = JSON.parse(out) as {
@@ -71,6 +76,7 @@ export async function listOpenPullRequests(
     commits: { committedDate: string }[] | null;
     reviews: RawReview[] | null;
     statusCheckRollup: { name?: string; conclusion?: string }[] | null;
+    mergeable: string | null;
   }[];
 
   return rows.map((row) => {
@@ -87,6 +93,10 @@ export async function listOpenPullRequests(
       failedChecks: (row.statusCheckRollup ?? [])
         .filter((check) => check.conclusion === "FAILURE")
         .map((check) => check.name ?? "unnamed"),
+      mergeable:
+        row.mergeable === "MERGEABLE" || row.mergeable === "CONFLICTING"
+          ? row.mergeable
+          : "UNKNOWN",
     };
   });
 }

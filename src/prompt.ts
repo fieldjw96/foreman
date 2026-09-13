@@ -39,10 +39,12 @@ export type FixContext = {
   repo: string;
   pullRequest: number;
   branch: string;
+  baseBranch: string;
   issue: number;
   findings: string;
   failedChecks: string[];
   checkLog: string;
+  conflicting: boolean;
 };
 
 /**
@@ -61,6 +63,26 @@ export function buildFixPrompt(context: FixContext): string {
     "on it. You are fixing it, not starting again.",
     "",
   ];
+
+  if (context.conflicting) {
+    lines.push(
+      `This branch no longer merges into "${context.baseBranch}". Resolving that is the first`,
+      "job and possibly the only one:",
+      "",
+      `  git fetch origin ${context.baseBranch}`,
+      `  git merge origin/${context.baseBranch}`,
+      "",
+      "Resolve every conflict by keeping both sides' intent rather than taking one wholesale.",
+      "Two Tickets adding a line each to the same list is the common case, and the answer is",
+      "almost always both lines.",
+      "",
+      "If db/migrations/meta/_journal.json conflicts, do not hand-merge it: take the base",
+      "branch's copy, then re-run the repo's migration generator so the journal and the SQL",
+      "files agree. A journal that disagrees with the files beside it fails CI in a way that",
+      "reads as a broken migration rather than a bad merge.",
+      "",
+    );
+  }
 
   if (context.failedChecks.length > 0) {
     lines.push(`These required checks are red: ${context.failedChecks.join(", ")}.`, "");

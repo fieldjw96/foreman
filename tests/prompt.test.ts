@@ -7,9 +7,11 @@ const context = {
   pullRequest: 127,
   branch: "ticket/121",
   issue: 121,
+  baseBranch: "main",
   findings: "Migration 0004's backfill regex truncates at the first period.",
   failedChecks: [] as string[],
   checkLog: "",
+  conflicting: false,
 };
 
 describe("buildFixPrompt", () => {
@@ -56,6 +58,22 @@ describe("buildFixPrompt", () => {
     const prompt = buildFixPrompt(context);
     expect(prompt).toContain("MSYS_NO_PATHCONV=1");
     expect(prompt).toContain("C:/Program Files/Git/review");
+  });
+
+  it("tells a conflicting Run to merge the base branch first", () => {
+    const prompt = buildFixPrompt({ ...context, conflicting: true });
+    expect(prompt).toContain("git merge origin/main");
+    expect(prompt).toContain("no longer merges");
+  });
+
+  // Two Tickets each adding a line to the same list is the common case, and taking one side
+  // wholesale silently drops the other Ticket's work.
+  it("tells it to keep both sides' intent rather than picking one", () => {
+    expect(buildFixPrompt({ ...context, conflicting: true })).toContain("almost always both lines");
+  });
+
+  it("says nothing about conflicts when there are none", () => {
+    expect(buildFixPrompt(context)).not.toContain("no longer merges");
   });
 
   it("forbids opening a second pull request", () => {

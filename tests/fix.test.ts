@@ -17,6 +17,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   gateVerdict: null,
   gateVerdictAt: null,
   failedChecks: [],
+  mergeable: "MERGEABLE",
   ...over,
 });
 
@@ -88,6 +89,33 @@ describe("classifyPullRequest", () => {
   it("waits when there is no verdict at all", () => {
     expect(classifyPullRequest(pr())).toBe("waiting");
     expect(classifyPullRequest(pr({ gateVerdict: null, gateVerdictAt: null }))).toBe("waiting");
+  });
+});
+
+describe("classifyPullRequest, conflicts", () => {
+  /**
+   * The failure that killed PRs #56 and #59 under the archived harness: they sat approved
+   * while other work merged beneath them, went unmergeable, and were closed rather than
+   * finished. Nothing was looking at mergeability, so nothing noticed.
+   */
+  it("sends a Run back to a conflicting pull request even when the Gate approved it", () => {
+    expect(
+      classifyPullRequest(
+        pr({ mergeable: "CONFLICTING", gateVerdict: "APPROVED", gateVerdictAt: AFTER }),
+      ),
+    ).toBe("needs-fix");
+  });
+
+  it("sends a Run back to a conflicting pull request with every check green", () => {
+    expect(classifyPullRequest(pr({ mergeable: "CONFLICTING", failedChecks: [] })))
+      .toBe("needs-fix");
+  });
+
+  // GitHub reports UNKNOWN while it is still working the answer out. Treating that as a
+  // conflict would send a Run at every pull request the moment it opened.
+  it("does not treat UNKNOWN as a conflict", () => {
+    expect(classifyPullRequest(pr({ mergeable: "UNKNOWN", gateVerdict: "APPROVED", gateVerdictAt: AFTER })))
+      .toBe("ready-to-merge");
   });
 });
 
