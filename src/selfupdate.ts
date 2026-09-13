@@ -38,9 +38,15 @@ export async function selfUpdate(repoRoot: string): Promise<UpdateResult> {
       return { changed: false, reason: `on ${branch}, not main` };
     }
 
-    const dirty = await git(["status", "--porcelain"]);
+    // Tracked changes only. An untracked file is a stray log, a scratch script or an editor
+    // swap file, and none of those conflict with a fast-forward: git refuses on its own if
+    // the merge would overwrite one, and the catch below then leaves the old version running.
+    // Counting them meant a single stray .tmp pinned foreman on old code permanently, with no
+    // symptom other than work quietly not being picked up, which is the exact failure this
+    // module exists to remove.
+    const dirty = await git(["status", "--porcelain", "--untracked-files=no"]);
     if (dirty !== "") {
-      return { changed: false, reason: "working tree has local changes" };
+      return { changed: false, reason: "tracked files have local changes" };
     }
 
     const before = await git(["rev-parse", "--short", "HEAD"]);
