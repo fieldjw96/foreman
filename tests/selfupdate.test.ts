@@ -85,6 +85,20 @@ describe("selfUpdate", () => {
     expect(git(clone, "log", "--oneline", "-1")).toContain("one");
   });
 
+  /**
+   * The case the first version of this got wrong. `git status --porcelain` counts untracked
+   * files, so one stray .tmp or scratch script pinned foreman on old code for ever, and the
+   * only symptom was work quietly not being picked up. An untracked file cannot conflict with
+   * a fast-forward: git refuses on its own if the merge would overwrite one.
+   */
+  it("updates despite an untracked file, which cannot block a fast-forward", async () => {
+    writeFileSync(join(clone, "stray.tmp"), "scratch");
+    advanceRemote(remote);
+    const result = await selfUpdate(clone);
+    expect(result.changed).toBe(true);
+    expect(git(clone, "log", "--oneline", "-1")).toContain("two");
+  });
+
   it("does nothing when the clone is not on main", async () => {
     git(clone, "checkout", "--quiet", "-b", "some-branch");
     advanceRemote(remote);
