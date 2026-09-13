@@ -1,4 +1,4 @@
-import type { Config } from "./config.ts";
+import { repoRoot, type Config } from "./config.ts";
 import { listTickets, setStatus, comment, findPullRequest, countFailedAttempts, type Ticket } from "./gh.ts";
 import { STATUS, ALL_STATUSES } from "./labels.ts";
 import { readState, writeState, statePath, isProcessAlive, type LiveRun } from "./state.ts";
@@ -9,6 +9,7 @@ import { acquireLock, releaseLock, lockPath } from "./lock.ts";
 import { listOpenPullRequests, reviewFindings, failedCheckLog, type OpenPullRequest } from "./pulls.ts";
 import { chooseFixes } from "./fix.ts";
 import { buildFixPrompt } from "./prompt.ts";
+import { selfUpdate } from "./selfupdate.ts";
 
 export const FAILURE_MARKER = "<!-- foreman:run-failed -->";
 export const FIX_MARKER = "<!-- foreman:fix-run -->";
@@ -61,6 +62,16 @@ export async function tick(config: Config): Promise<void> {
     return;
   }
   try {
+    // Inside the lock, before anything is read. A merged change to foreman otherwise does
+    // nothing until somebody remembers to pull on the server laptop, and the only symptom is
+    // work quietly not being picked up. The new code takes effect on the *next* tick, since
+    // this process is already loaded; that is deliberate, because swapping the code out from
+    // under a tick already in progress is how the harness this replaces got into trouble.
+    const update = await selfUpdate(repoRoot);
+    if (update.changed) {
+      log(`updated foreman ${update.from} -> ${update.to}; it takes effect next tick`);
+    }
+
     await runTick(config);
   } finally {
     releaseLock(lock);
