@@ -7,7 +7,8 @@ import { launchRun, killRun } from "./launch.ts";
 import { classifyRun, freeSlots, chooseTickets, outcomeOf } from "./decide.ts";
 import { acquireLock, releaseLock, lockPath } from "./lock.ts";
 import { listOpenPullRequests, reviewFindings, failedCheckLog, type OpenPullRequest } from "./pulls.ts";
-import { chooseFixes } from "./fix.ts";
+import { chooseFixes, classifyPullRequest } from "./fix.ts";
+import { needsReviewRequest, lastReviewRequestAt, requestReview } from "./rereview.ts";
 import { buildFixPrompt } from "./prompt.ts";
 import { selfUpdate } from "./selfupdate.ts";
 
@@ -117,6 +118,22 @@ async function runTick(config: Config): Promise<void> {
       pulls.push(...(await listOpenPullRequests(repo.name, config.gateReviewer)));
     } catch (err) {
       log(`  could not read pull requests on ${repo.name}: ${(err as Error).message}`);
+    }
+  }
+
+  // Ask for the review a waiting pull request is waiting on. Leaving this to the Run that
+  // pushed the fix is what stranded rolodeck-ai#127 for an hour: it posted its request
+  // through a Windows shell, which rewrote "/review" into a file path, and nothing was ever
+  // going to notice. Costs one API call per waiting pull request and asks at most once per
+  // commit.
+  for (const pr of pulls) {
+    if (classifyPullRequest(pr) !== "waiting") continue;
+    try {
+      if (!needsReviewRequest(pr, await lastReviewRequestAt(pr.repo, pr.number))) continue;
+      await requestReview(pr.repo, pr.number);
+      log(`  asked for a fresh review on PR #${pr.number}`);
+    } catch (err) {
+      log(`  could not request a review on PR #${pr.number}: ${(err as Error).message}`);
     }
   }
 
