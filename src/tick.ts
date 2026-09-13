@@ -2,12 +2,16 @@ import type { Config } from "./config.ts";
 import { listTickets, setStatus, comment, findPullRequest, countFailedAttempts, type Ticket } from "./gh.ts";
 import { STATUS, ALL_STATUSES } from "./labels.ts";
 import { readState, writeState, statePath, isProcessAlive, type LiveRun } from "./state.ts";
-import { branchName, worktreePath, createWorktree, removeWorktree } from "./git.ts";
+import { branchName, worktreePath, createWorktree, removeWorktree, checkoutExistingBranch } from "./git.ts";
 import { launchRun, killRun } from "./launch.ts";
 import { classifyRun, freeSlots, chooseTickets, outcomeOf } from "./decide.ts";
 import { acquireLock, releaseLock, lockPath } from "./lock.ts";
+import { listOpenPullRequests, reviewFindings, failedCheckLog, type OpenPullRequest } from "./pulls.ts";
+import { chooseFixes } from "./fix.ts";
+import { buildFixPrompt } from "./prompt.ts";
 
 export const FAILURE_MARKER = "<!-- foreman:run-failed -->";
+export const FIX_MARKER = "<!-- foreman:fix-run -->";
 
 const log = (msg: string) => console.log(`${new Date().toISOString()} ${msg}`);
 
@@ -91,6 +95,87 @@ async function runTick(config: Config): Promise<void> {
     return;
   }
 
+  // Finishing work comes before starting more of it. An open pull request that was rejected
+  // or has gone red is the closest thing to done in the system, and leaving it while new
+  // Runs land on main is exactly how two pull requests ended up unmergeable against a branch
+  // that had moved twice underneath them.
+  let remaining = slots;
+  const pulls: OpenPullRequest[] = [];
+  for (const repo of config.repos) {
+    try {
+      pulls.push(...(await listOpenPullRequests(repo.name, config.gateReviewer)));
+    } catch (err) {
+      log(`  could not read pull requests on ${repo.name}: ${(err as Error).message}`);
+    }
+  }
+
+  for (const pr of chooseFixes(pulls, stillRunning, remaining)) {
+    const repo = config.repos.find((r) => r.name === pr.repo)!;
+    const issue = pr.issue!;
+    const worktree = worktreePath(config.worktreeRoot, pr.repo, issue);
+    try {
+      const attempts = await countFailedAttempts(pr.repo, issue, FIX_MARKER);
+      if (attempts >= config.maxFixAttempts) {
+        log(`  #${issue} has already had ${attempts} fix Runs; leaving it for a human`);
+        await setStatus(pr.repo, issue, STATUS.needsHuman, ALL_STATUSES);
+        continue;
+      }
+
+      const tickets = await listTickets(pr.repo);
+      const ticket = tickets.find((t) => t.number === issue);
+      if (ticket === undefined) {
+        log(`  #${issue} has no open Ticket; not fixing PR #${pr.number}`);
+        continue;
+      }
+
+      await comment(
+        pr.repo,
+        issue,
+        `${FIX_MARKER}\nSending a Run back to pull request #${pr.number}: ` +
+          (pr.failedChecks.length > 0
+            ? `checks are red (${pr.failedChecks.join(", ")}).`
+            : "the review Gate asked for changes."),
+      );
+      await setStatus(pr.repo, issue, STATUS.running, ALL_STATUSES);
+      await checkoutExistingBranch(repo.clonePath, worktree, pr.branch);
+
+      const prompt = buildFixPrompt({
+        repo: pr.repo,
+        pullRequest: pr.number,
+        branch: pr.branch,
+        issue,
+        findings: await reviewFindings(pr.repo, pr.number, config.gateReviewer),
+        failedChecks: pr.failedChecks,
+        checkLog: pr.failedChecks.length > 0 ? await failedCheckLog(pr.repo, pr.branch) : "",
+      });
+
+      const startedAt = new Date();
+      const { pid, logFile } = launchRun(
+        config, ticket, worktree, pr.branch, repo.baseBranch, startedAt, prompt,
+      );
+      stillRunning.push({
+        repo: pr.repo,
+        issue,
+        pid,
+        branch: pr.branch,
+        worktree,
+        logFile,
+        startedAt: startedAt.toISOString(),
+      });
+      remaining -= 1;
+      log(`  fixing #${issue} (PR #${pr.number}) as pid ${pid}`);
+    } catch (err) {
+      log(`  could not start a fix for #${issue}: ${(err as Error).message}`);
+      await setStatus(pr.repo, issue, STATUS.review, ALL_STATUSES).catch(() => {});
+      await removeWorktree(repo.clonePath, worktree).catch(() => {});
+    }
+  }
+
+  if (remaining === 0) {
+    writeState(path, { runs: stillRunning });
+    return;
+  }
+
   const tickets: Ticket[] = [];
   for (const repo of config.repos) {
     try {
@@ -100,7 +185,7 @@ async function runTick(config: Config): Promise<void> {
     }
   }
 
-  for (const ticket of chooseTickets(tickets, stillRunning, slots, config.defaultComplexity)) {
+  for (const ticket of chooseTickets(tickets, stillRunning, remaining, config.defaultComplexity)) {
     const repo = config.repos.find((r) => r.name === ticket.repo)!;
     const branch = branchName(ticket.number);
     const worktree = worktreePath(config.worktreeRoot, ticket.repo, ticket.number);

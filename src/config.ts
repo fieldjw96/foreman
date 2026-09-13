@@ -14,6 +14,8 @@ export type Config = {
   maxConcurrent: number;
   runTimeoutMinutes: number;
   maxAttempts: number;
+  maxFixAttempts: number;
+  gateReviewer: string;
   worktreeRoot: string;
   secretsDir: string;
   defaultComplexity: Complexity;
@@ -85,6 +87,8 @@ export function parseConfig(raw: unknown, env: NodeJS.ProcessEnv = process.env):
     maxConcurrent: requirePositiveInt(c.maxConcurrent, "maxConcurrent"),
     runTimeoutMinutes: requirePositiveInt(c.runTimeoutMinutes, "runTimeoutMinutes"),
     maxAttempts: requirePositiveInt(c.maxAttempts, "maxAttempts"),
+    maxFixAttempts: requirePositiveInt(c.maxFixAttempts ?? 3, "maxFixAttempts"),
+    gateReviewer: typeof c.gateReviewer === "string" ? c.gateReviewer : "github-actions",
     worktreeRoot: expandVars(String(c.worktreeRoot ?? "C:\agent-runs"), env),
     secretsDir: expandVars(String(c.secretsDir ?? "C:\agent-secrets"), env),
     defaultComplexity,

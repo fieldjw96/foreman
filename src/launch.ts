@@ -32,6 +32,10 @@ export function launchRun(
   branch: string,
   baseBranch: string,
   startedAt: Date = new Date(),
+  // A Run sent back to fix a pull request gets its own prompt. Everything else about
+  // launching it is identical, which is the point: a fix is a Run like any other, so it
+  // is reaped, timed out and settled by exactly the same code.
+  promptOverride?: string,
 ): LaunchResult {
   const model = config.models[complexityOf(ticket.labels, config.defaultComplexity)];
   const logFile = logPath(config.worktreeRoot, ticket.number, startedAt);
@@ -41,7 +45,7 @@ export function launchRun(
   const child = spawn(
     process.platform === "win32" ? "claude.exe" : "claude",
     [
-      "-p", buildPrompt(ticket, branch, baseBranch),
+      "-p", promptOverride ?? buildPrompt(ticket, branch, baseBranch),
       "--model", model,
       "--permission-mode", "acceptEdits",
       "--allowedTools", ALLOWED_TOOLS,

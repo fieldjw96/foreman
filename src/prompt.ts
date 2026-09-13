@@ -34,3 +34,63 @@ export function buildPrompt(ticket: Ticket, branch: string, baseBranch: string):
     "work, still push what you have and open a draft pull request explaining where you got to.",
   ].join("\n");
 }
+
+export type FixContext = {
+  repo: string;
+  pullRequest: number;
+  branch: string;
+  issue: number;
+  findings: string;
+  failedChecks: string[];
+  checkLog: string;
+};
+
+/**
+ * A Run sent back to a pull request the Gate rejected, or whose checks went red.
+ *
+ * It is told to push to the existing branch and re-request review, never to open a second
+ * pull request. Pushing is what marks it finished, the same way opening one does for a first
+ * Run, so the supervisor still never has to read an exit code.
+ */
+export function buildFixPrompt(context: FixContext): string {
+  const lines = [
+    `Pull request #${context.pullRequest} in ${context.repo} needs fixing. It is on branch`,
+    `"${context.branch}" and closes issue #${context.issue}.`,
+    "",
+    "You are in a git worktree on local disk, already on that branch, with the work already",
+    "on it. You are fixing it, not starting again.",
+    "",
+  ];
+
+  if (context.failedChecks.length > 0) {
+    lines.push(`These required checks are red: ${context.failedChecks.join(", ")}.`, "");
+    if (context.checkLog !== "") {
+      lines.push("The tail of the failing log:", "", "```", context.checkLog, "```", "");
+    }
+  }
+
+  if (context.findings !== "") {
+    lines.push("The review Gate asked for changes:", "", context.findings, "");
+  }
+
+  lines.push(
+    "Do this:",
+    `1. Read the issue with: gh issue view ${context.issue} --repo ${context.repo}`,
+    "2. Read the findings above and the code they point at before changing anything.",
+    "3. Fix the cause rather than the symptom. If a finding is wrong, say so in a pull",
+    "   request comment with your reasoning instead of changing correct code.",
+    "4. Run the repo's own checks, including the formatter, and get them passing.",
+    "5. Commit and push to the existing branch. Do not open a second pull request.",
+    `6. Comment "/review" on pull request #${context.pullRequest} to request a fresh review.`,
+    "",
+    "Rules:",
+    "- Do not merge. A human or the merge rules decide that.",
+    "- Do not edit the issue's labels. The supervisor owns those.",
+    "- Do not force-push in a way that discards commits you did not write.",
+    "- Do not write secrets into any file. They are in your environment already.",
+    "",
+    "Pushing to the branch is what marks this Run as finished.",
+  );
+
+  return lines.join("\n");
+}

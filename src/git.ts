@@ -34,6 +34,21 @@ export async function createWorktree(
   await git(clonePath, ["worktree", "add", "-B", branch, worktree, `origin/${baseBranch}`]);
 }
 
+/**
+ * A worktree on a branch that already exists on the remote, for a Run sent back to fix an
+ * open pull request. Unlike `createWorktree` this must not reset to the base branch: the
+ * work already on it is the thing being fixed.
+ */
+export async function checkoutExistingBranch(
+  clonePath: string,
+  worktree: string,
+  branch: string,
+): Promise<void> {
+  await git(clonePath, ["fetch", "origin", branch, "--quiet"]);
+  await removeWorktree(clonePath, worktree).catch(() => {});
+  await git(clonePath, ["worktree", "add", "-B", branch, worktree, `origin/${branch}`]);
+}
+
 export async function removeWorktree(clonePath: string, worktree: string): Promise<void> {
   try {
     await git(clonePath, ["worktree", "remove", worktree, "--force"]);
