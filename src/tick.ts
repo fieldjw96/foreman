@@ -14,6 +14,8 @@ import {
   requestReview,
   needsBranchUpdate,
   updateBranch,
+  needsAutoMergeArming,
+  armAutoMerge,
 } from "./rereview.ts";
 import { buildFixPrompt } from "./prompt.ts";
 import { selfUpdate } from "./selfupdate.ts";
@@ -22,6 +24,9 @@ export const FAILURE_MARKER = "<!-- foreman:run-failed -->";
 export const FIX_MARKER = "<!-- foreman:fix-run -->";
 
 const log = (msg: string) => console.log(`${new Date().toISOString()} ${msg}`);
+
+/** gh errors carry a stack; only the first line belongs in a tick's log. */
+const firstLine = (text: string): string => text.split(/\r?\n/)[0] ?? text;
 
 function cloneFor(config: Config, repo: string): string {
   const found = config.repos.find((r) => r.name === repo);
@@ -132,6 +137,22 @@ async function runTick(config: Config): Promise<void> {
   // through a Windows shell, which rewrote "/review" into a file path, and nothing was ever
   // going to notice. Costs one API call per waiting pull request and asks at most once per
   // commit.
+  // Tell GitHub to merge each pull request once its rules are met. Enabling auto-merge on the
+  // repository only makes the feature available; arming it is per pull request, and nothing
+  // was doing it. Pull requests reached CLEAN and APPROVED and simply stopped, which is the
+  // least obvious way for a pipeline to fail: every part reports success and nothing moves.
+  for (const pr of pulls) {
+    if (!needsAutoMergeArming(pr)) continue;
+    try {
+      await armAutoMerge(pr.repo, pr.number);
+      log(`  armed auto-merge on PR #${pr.number}`);
+    } catch (err) {
+      // A pull request GitHub will not arm yet, such as one already mergeable with no rules
+      // outstanding, is not an error worth a retry loop.
+      log(`  could not arm PR #${pr.number}: ${firstLine((err as Error).message)}`);
+    }
+  }
+
   // Bring a stale branch up to date. The ruleset requires it before merging, and GitHub did
   // not do it on its own even with auto-merge armed: three pull requests sat BEHIND for an
   // hour. Updating lands a merge commit, which dismisses the approval, and the next tick then

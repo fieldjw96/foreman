@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { needsReviewRequest, needsBranchUpdate, REVIEW_COMMAND } from "../src/rereview.ts";
+import {
+  needsReviewRequest,
+  needsBranchUpdate,
+  needsAutoMergeArming,
+  REVIEW_COMMAND,
+} from "../src/rereview.ts";
 import type { OpenPullRequest } from "../src/pulls.ts";
 
 const VERDICT = "2026-09-13T18:22:32Z";
@@ -17,6 +22,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   failedChecks: [],
   mergeable: "MERGEABLE",
   mergeState: "CLEAN",
+  autoMergeArmed: true,
   ...over,
 });
 
@@ -96,4 +102,26 @@ describe("needsBranchUpdate", () => {
       expect(needsBranchUpdate(state)).toBe(false);
     },
   );
+});
+
+describe("needsAutoMergeArming", () => {
+  /**
+   * Enabling auto-merge on the repository only makes the feature available; arming it is per
+   * pull request. Nothing was doing that, so pull requests reached CLEAN and APPROVED and
+   * simply stopped. It is the least obvious way for a pipeline to fail: every part reports
+   * success and the queue never drains.
+   */
+  it("arms a pull request nobody has armed", () => {
+    expect(needsAutoMergeArming({ autoMergeArmed: false, issue: 121 })).toBe(true);
+  });
+
+  it("leaves an already-armed pull request alone", () => {
+    expect(needsAutoMergeArming({ autoMergeArmed: true, issue: 121 })).toBe(false);
+  });
+
+  // Same rule as fix Runs: without a Ticket there are no Acceptance Criteria behind it, and
+  // a hand-written pull request is a human's to merge.
+  it("does not arm a pull request that closes no issue", () => {
+    expect(needsAutoMergeArming({ autoMergeArmed: false, issue: null })).toBe(false);
+  });
 });
