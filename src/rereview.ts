@@ -24,6 +24,16 @@ export function needsReviewRequest(
   pr: OpenPullRequest,
   lastRequestAt: string | null,
 ): boolean {
+  const asked = lastRequestAt === null ? 0 : new Date(lastRequestAt).getTime();
+
+  // The Gate's own check failed, meaning the reviewer did not finish rather than that it
+  // objected. Another review is the remedy. Keyed on when that failure concluded rather than
+  // on the commit, because a review can fail without the branch moving at all, and the
+  // commit-based guard below would then never ask again.
+  if (pr.gateCheckFailedAt !== null) {
+    return asked < new Date(pr.gateCheckFailedAt).getTime();
+  }
+
   if (pr.gateVerdictAt === null) return false;
 
   const committedAt = new Date(pr.lastCommitAt).getTime();
@@ -31,7 +41,7 @@ export function needsReviewRequest(
   if (committedAt <= verdictAt) return false;
 
   if (lastRequestAt === null) return true;
-  return committedAt > new Date(lastRequestAt).getTime();
+  return committedAt > asked;
 }
 
 /**

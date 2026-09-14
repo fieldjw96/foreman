@@ -4,6 +4,12 @@ import type { LiveRun } from "./state.ts";
 export type PullRequestState = "needs-fix" | "waiting" | "ready-to-merge";
 
 /**
+ * The check the review Gate posts for itself. Named here because it is the one check whose
+ * failure says nothing about the code under it.
+ */
+export const GATE_CHECK = "review";
+
+/**
  * Whether a Run should be sent back to a pull request.
  *
  * The whole rule is one comparison: **is the complaint newer than the code?** A rejection or
@@ -37,7 +43,20 @@ export function classifyPullRequest(
   if (pr.mergeable === "CONFLICTING") return "needs-fix";
 
   // A red check is always about the current head: GitHub attaches it to the commit.
-  if (pr.failedChecks.length > 0) return "needs-fix";
+  /**
+   * The Gate's own check is not a statement about the code. It goes red when the reviewer
+   * itself failed to finish, and exhausting its turn budget on a large diff is how that
+   * actually happens. The remedy is another review, not a Run sent at code nobody has found
+   * fault with.
+   *
+   * rolodeck-ai#132 was APPROVED and BLOCKED at once for exactly this reason, and the
+   * supervisor then spent that Ticket's whole fix budget rewriting code that was already
+   * right, until it gave up and asked for a human. Three Runs and a stalled Ticket because a
+   * reviewer ran out of room to read.
+   */
+  const codeChecks = pr.failedChecks.filter((name) => name !== GATE_CHECK);
+  if (codeChecks.length > 0) return "needs-fix";
+  if (pr.failedChecks.includes(GATE_CHECK)) return "waiting";
 
   if (pr.gateVerdict === "CHANGES_REQUESTED") {
     const verdictAt = pr.gateVerdictAt === null ? 0 : new Date(pr.gateVerdictAt).getTime();
