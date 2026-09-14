@@ -88,3 +88,25 @@ export function needsBranchUpdate(mergeState: string): boolean {
 export async function updateBranch(repo: string, pr: number): Promise<void> {
   await gh(["pr", "update-branch", String(pr), "--repo", repo]);
 }
+
+/**
+ * Whether to tell GitHub to merge this pull request once its requirements are met.
+ *
+ * Enabling auto-merge on the repository only makes the feature available; it still has to be
+ * armed per pull request. Nothing armed it, so every pull request reached CLEAN and APPROVED
+ * and then sat there, which is the least obvious way for an automated pipeline to stop: each
+ * piece reports success and the queue simply never drains.
+ *
+ * Arming is safe by construction. It never bypasses a rule: GitHub merges only when every
+ * required check is green, the Gate has approved, the branch is current, and any CODEOWNERS
+ * path has its human approval. Arming a pull request that will never satisfy those does
+ * nothing at all.
+ */
+export function needsAutoMergeArming(pr: { autoMergeArmed: boolean; issue: number | null }): boolean {
+  return !pr.autoMergeArmed && pr.issue !== null;
+}
+
+/** Tells GitHub to merge once the rules are satisfied. */
+export async function armAutoMerge(repo: string, pr: number): Promise<void> {
+  await gh(["pr", "merge", String(pr), "--repo", repo, "--auto", "--merge"]);
+}

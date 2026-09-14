@@ -24,6 +24,8 @@ export type OpenPullRequest = {
    * cleanly but is out of date, and the ruleset requires it to be current.
    */
   mergeState: string;
+  /** Whether GitHub has been told to merge this once its requirements are met. */
+  autoMergeArmed: boolean;
 };
 
 type RawReview = { author: { login: string } | null; state: string; submittedAt: string };
@@ -71,7 +73,7 @@ export async function listOpenPullRequests(
     "--limit",
     "20",
     "--json",
-    "number,headRefName,body,commits,reviews,statusCheckRollup,mergeable,mergeStateStatus",
+    "number,headRefName,body,commits,reviews,statusCheckRollup,mergeable,mergeStateStatus,autoMergeRequest",
   ]);
 
   const rows = JSON.parse(out) as {
@@ -83,6 +85,7 @@ export async function listOpenPullRequests(
     statusCheckRollup: { name?: string; conclusion?: string }[] | null;
     mergeable: string | null;
     mergeStateStatus: string | null;
+    autoMergeRequest: unknown;
   }[];
 
   return rows.map((row) => {
@@ -104,6 +107,7 @@ export async function listOpenPullRequests(
           ? row.mergeable
           : "UNKNOWN",
       mergeState: row.mergeStateStatus ?? "UNKNOWN",
+      autoMergeArmed: row.autoMergeRequest !== null && row.autoMergeRequest !== undefined,
     };
   });
 }

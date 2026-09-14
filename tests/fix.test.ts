@@ -19,6 +19,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   failedChecks: [],
   mergeable: "MERGEABLE",
   mergeState: "CLEAN",
+  autoMergeArmed: true,
   ...over,
 });
 
