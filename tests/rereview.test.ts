@@ -23,6 +23,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   mergeable: "MERGEABLE",
   mergeState: "CLEAN",
   autoMergeArmed: true,
+  gateCheckFailedAt: null,
   ...over,
 });
 
@@ -123,5 +124,27 @@ describe("needsAutoMergeArming", () => {
   // a hand-written pull request is a human's to merge.
   it("does not arm a pull request that closes no issue", () => {
     expect(needsAutoMergeArming({ autoMergeArmed: false, issue: null })).toBe(false);
+  });
+});
+
+describe("needsReviewRequest, after the Gate's check failed", () => {
+  const FAILED_AT = "2026-09-14T02:55:34Z";
+
+  /**
+   * A review can fail without the branch moving, so the commit-based guard would never ask
+   * again and the pull request would sit red for ever. Keyed on when the failure concluded.
+   */
+  it("asks again after the reviewer failed to finish", () => {
+    expect(needsReviewRequest(pr({ gateCheckFailedAt: FAILED_AT }), "2026-09-14T02:50:00Z"))
+      .toBe(true);
+  });
+
+  it("does not ask twice for the same failure", () => {
+    expect(needsReviewRequest(pr({ gateCheckFailedAt: FAILED_AT }), "2026-09-14T02:56:00Z"))
+      .toBe(false);
+  });
+
+  it("asks when the reviewer failed and nobody has ever asked", () => {
+    expect(needsReviewRequest(pr({ gateCheckFailedAt: FAILED_AT }), null)).toBe(true);
   });
 });

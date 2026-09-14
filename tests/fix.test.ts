@@ -20,6 +20,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   mergeable: "MERGEABLE",
   mergeState: "CLEAN",
   autoMergeArmed: true,
+  gateCheckFailedAt: null,
   ...over,
 });
 
@@ -229,5 +230,35 @@ describe("latestGateVerdict", () => {
   it("survives a review whose author GitHub reports as null", () => {
     const reviews = [{ author: null, state: "APPROVED", submittedAt: AFTER }];
     expect(latestGateVerdict(reviews, "github-actions")).toBeNull();
+  });
+});
+
+describe("classifyPullRequest, the Gate's own check", () => {
+  /**
+   * rolodeck-ai#132 was APPROVED and BLOCKED at the same time. A review approved it, the
+   * branch was brought up to date, a fresh review was requested as designed, and that one hit
+   * its 40-turn cap on a 37-file diff and wrote no verdict. The job fails rather than passing
+   * on silence, which is right, and that posted a red `review` check on a pull request nobody
+   * had found fault with.
+   *
+   * The supervisor then read the red check as "fix the code" and spent the Ticket's entire
+   * fix budget rewriting code that was already correct.
+   */
+  it("does not send a Run when only the Gate's own check failed", () => {
+    expect(classifyPullRequest(pr({ failedChecks: ["review"] }))).toBe("waiting");
+  });
+
+  it("still sends a Run when a real check failed alongside it", () => {
+    expect(classifyPullRequest(pr({ failedChecks: ["review", "ci"] }))).toBe("needs-fix");
+  });
+
+  it("still sends a Run for an ordinary red check", () => {
+    expect(classifyPullRequest(pr({ failedChecks: ["ci"] }))).toBe("needs-fix");
+  });
+
+  // A conflict is still a conflict even if the reviewer also fell over.
+  it("a conflict outranks a failed Gate check", () => {
+    expect(classifyPullRequest(pr({ failedChecks: ["review"], mergeable: "CONFLICTING" })))
+      .toBe("needs-fix");
   });
 });

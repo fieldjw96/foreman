@@ -26,6 +26,11 @@ export type OpenPullRequest = {
   mergeState: string;
   /** Whether GitHub has been told to merge this once its requirements are met. */
   autoMergeArmed: boolean;
+  /**
+   * When the Gate's own check last concluded in failure, if it did. Distinct from a verdict:
+   * this is the reviewer failing to finish rather than the reviewer objecting.
+   */
+  gateCheckFailedAt: string | null;
 };
 
 type RawReview = { author: { login: string } | null; state: string; submittedAt: string };
@@ -82,7 +87,9 @@ export async function listOpenPullRequests(
     body: string | null;
     commits: { committedDate: string }[] | null;
     reviews: RawReview[] | null;
-    statusCheckRollup: { name?: string; conclusion?: string }[] | null;
+    statusCheckRollup:
+      | { name?: string; conclusion?: string; completedAt?: string }[]
+      | null;
     mergeable: string | null;
     mergeStateStatus: string | null;
     autoMergeRequest: unknown;
@@ -108,6 +115,10 @@ export async function listOpenPullRequests(
           : "UNKNOWN",
       mergeState: row.mergeStateStatus ?? "UNKNOWN",
       autoMergeArmed: row.autoMergeRequest !== null && row.autoMergeRequest !== undefined,
+      gateCheckFailedAt:
+        (row.statusCheckRollup ?? []).find(
+          (c) => c.name === "review" && c.conclusion === "FAILURE",
+        )?.completedAt ?? null,
     };
   });
 }
