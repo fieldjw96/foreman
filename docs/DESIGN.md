@@ -105,6 +105,21 @@ created and the next tick simply tries again.
 to stick would otherwise start a second Run on a Ticket that already has one, both pushing
 to the same branch.
 
+**A Run pushes before it verifies, and still opens the pull request last.** The prompt used
+to say to get the repo's checks passing before pushing. That is what a person does, and it is
+wrong here: a Run is stopped mid-command when its time is up and its worktree is removed, so
+work committed nowhere but locally goes with it and leaves no trace. rolodeck-ai#156 was lost
+twice this way inside an hour. Both Runs had finished the work, both were waiting on a suite
+CI was going to run anyway, neither had pushed, and the Ticket reached `status:needs-human`
+with two Runs' output unrecoverable.
+
+Pushing early is safe precisely because a pushed branch is not the finish signal. Opening the
+pull request is, so that stays last: an early one would tell the supervisor a Run had finished
+while it was still working, and it would stop watching. The prompt now also tells a Run to
+leave browser and end-to-end suites to CI, which is the authority on them and already routes a
+red one back as a fix Run. Running them locally as well buys nothing, and it is what both lost
+Runs were doing when they died.
+
 ## The constraint that shapes everything
 
 JACK_LAPTOP and the server laptop cannot reach each other. Anything the server needs arrives
