@@ -4,6 +4,12 @@ import type { Ticket } from "./gh.ts";
  * The Run opens its own pull request. That is what lets the supervisor stay dumb: it never
  * has to parse an exit code or scrape a log, it just asks GitHub whether a pull request
  * exists on the branch.
+ *
+ * The order of these steps is load-bearing. A Run is reaped when its time is up, wherever it
+ * has got to, and its worktree is removed: anything committed nowhere but there dies with it,
+ * and there is nothing left to recover. So the Run pushes before it does anything slow. The
+ * pull request is still opened last, because opening it is the finish signal, and an early
+ * one would tell the supervisor a Run had finished while it was still working.
  */
 export function buildPrompt(ticket: Ticket, branch: string, baseBranch: string): string {
   return [
@@ -17,21 +23,31 @@ export function buildPrompt(ticket: Ticket, branch: string, baseBranch: string):
     "3. Plan the change before editing. State the plan, then implement it.",
     "4. Satisfy every Acceptance Criterion in the issue. Each one is meant to be checkable;",
     "   if one genuinely cannot be met, do the rest and say which and why in the pull request.",
-    "5. Run the repo's own checks and get them passing before you push.",
-    "6. Review your own diff cold, as if someone else wrote it, and fix what you find.",
-    `7. Commit, push to "${branch}", and open a pull request against "${baseBranch}" with`,
-    `   "Closes #${ticket.number}" in the body. This branch was created fresh from`,
-    `   "${baseBranch}", so if the remote already has "${branch}" from an earlier attempt,`,
-    "   push with --force-with-lease. Replacing it is correct; the old attempt is superseded.",
+    `5. Commit each piece as it stands up, and push to "${branch}" before you run anything`,
+    `   that takes minutes. This branch was created fresh from "${baseBranch}", so if the`,
+    `   remote already has "${branch}" from an earlier attempt, push with --force-with-lease.`,
+    "   Replacing it is correct; the old attempt is superseded.",
+    "6. Run the repo's own checks and get them passing, committing and pushing as you go.",
+    "7. Review your own diff cold, as if someone else wrote it, and fix what you find.",
+    `8. Open a pull request against "${baseBranch}" with "Closes #${ticket.number}" in the`,
+    "   body. This comes last: it is what tells the supervisor the Run is done.",
     "",
     "Rules:",
     "- Do not merge the pull request. A human decides that.",
     "- Do not edit the issue's labels. The supervisor owns those.",
     "- Do not write secrets into any file. They are in your environment already.",
     "- Stay inside this worktree. Do not touch other repositories.",
+    "- Do not run the repo's browser or end-to-end suites locally when CI runs them on the",
+    "  pull request. CI is the authority on those and a red one comes back to you as a fix",
+    "  Run, which is what that path is for. Run the fast checks here: types, lint, format,",
+    "  unit tests.",
     "",
-    "Opening the pull request is what marks this Run as finished. If you cannot finish the",
-    "work, still push what you have and open a draft pull request explaining where you got to.",
+    "Opening the pull request is what marks this Run as finished, which is why it comes last.",
+    "",
+    "Your time is limited and you will be stopped when it runs out, without warning. Work so",
+    "that being stopped costs you the last few minutes rather than everything: a push is the",
+    "only thing that puts work somewhere this Run ending cannot reach. If you cannot finish,",
+    "push what you have and open a draft pull request explaining where you got to.",
   ].join("\n");
 }
 
@@ -101,8 +117,10 @@ export function buildFixPrompt(context: FixContext): string {
     "2. Read the findings above and the code they point at before changing anything.",
     "3. Fix the cause rather than the symptom. If a finding is wrong, say so in a pull",
     "   request comment with your reasoning instead of changing correct code.",
-    "4. Run the repo's own checks, including the formatter, and get them passing.",
-    "5. Commit and push to the existing branch. Do not open a second pull request.",
+    "4. Commit and push to the existing branch as soon as the fix stands up, before you run",
+    "   anything that takes minutes. Do not open a second pull request.",
+    "5. Run the repo's own checks, including the formatter, and get them passing, pushing as",
+    "   you go.",
     `6. Request a fresh review on pull request #${context.pullRequest}. The comment body must`,
     '   be exactly "/review" and nothing else, because the workflow matches on the comment',
     '   *starting* with it: prose that merely ends with "/review" is ignored, and the pull',
@@ -120,8 +138,13 @@ export function buildFixPrompt(context: FixContext): string {
     "- Do not edit the issue's labels. The supervisor owns those.",
     "- Do not force-push in a way that discards commits you did not write.",
     "- Do not write secrets into any file. They are in your environment already.",
+    "- Do not run the repo's browser or end-to-end suites locally when CI runs them on the",
+    "  pull request. CI is the authority on those and a red one comes back as another fix",
+    "  Run. Run the fast checks here: types, lint, format, unit tests.",
     "",
-    "Pushing to the branch is what marks this Run as finished.",
+    "Pushing to the branch is what marks this Run as finished. Your time is limited and you",
+    "will be stopped when it runs out, without warning, so push early: work that exists only",
+    "in this worktree is lost when the Run ends, and the worktree goes with it.",
   );
 
   return lines.join("\n");

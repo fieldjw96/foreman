@@ -83,6 +83,20 @@ describe("buildFixPrompt", () => {
   it("forbids merging", () => {
     expect(buildFixPrompt(context)).toContain("Do not merge");
   });
+
+  /**
+   * A fix Run that holds its work through a long check loses all of it, exactly as a first
+   * Run does. Asserted on both prompts rather than one, because they are two copies of the
+   * same instructions and a fix applied to only one of them would look done.
+   */
+  it("tells a fix Run to push before it runs anything slow", () => {
+    const prompt = buildFixPrompt(context);
+    const push = prompt.indexOf("Commit and push to the existing branch");
+    const checks = prompt.indexOf("Run the repo's own checks");
+    expect(push).toBeGreaterThan(-1);
+    expect(checks).toBeGreaterThan(-1);
+    expect(push).toBeLessThan(checks);
+  });
 });
 
 describe("buildPrompt", () => {
@@ -109,5 +123,43 @@ describe("buildPrompt", () => {
 
   it("forbids merging", () => {
     expect(buildPrompt(ticket, "ticket/121", "main")).toContain("Do not merge");
+  });
+
+  /**
+   * rolodeck-ai#156 was lost twice this way. Both Runs finished the work, both sat waiting on
+   * a suite CI was going to run anyway, both were reaped with nothing committed, and the
+   * worktree went with them. The prompt had told them to get the checks passing *before* they
+   * pushed, so they did exactly as instructed and the work was unrecoverable.
+   */
+  it("tells a first Run to push before it runs anything slow", () => {
+    const prompt = buildPrompt(ticket, "ticket/121", "main");
+    const push = prompt.indexOf('push to "ticket/121"');
+    const checks = prompt.indexOf("Run the repo's own checks");
+    expect(push).toBeGreaterThan(-1);
+    expect(checks).toBeGreaterThan(-1);
+    expect(push).toBeLessThan(checks);
+  });
+
+  /**
+   * Opening the pull request is the finish signal, so it has to stay last. Pushing early is
+   * safe; opening early would tell the supervisor a Run had finished while it was still
+   * working, and it would stop watching.
+   */
+  it("still opens the pull request after the checks, not before", () => {
+    const prompt = buildPrompt(ticket, "ticket/121", "main");
+    expect(prompt.indexOf("Run the repo's own checks")).toBeLessThan(
+      prompt.indexOf("Open a pull request"),
+    );
+  });
+
+  /**
+   * The suites CI runs on the pull request are the ones that cost a Run its budget, and a red
+   * one already comes back as a fix Run. Running them locally as well buys nothing and has
+   * cost two Runs.
+   */
+  it("tells a Run to leave the end-to-end suites to CI", () => {
+    expect(buildPrompt(ticket, "ticket/121", "main")).toContain(
+      "Do not run the repo's browser or end-to-end suites locally",
+    );
   });
 });
