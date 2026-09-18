@@ -24,6 +24,9 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   mergeState: "CLEAN",
   autoMergeArmed: true,
   gateCheckFailedAt: null,
+  // Present by default, so every test written before this field existed still asks the
+  // question it was written to ask: whether the verdict covers the code.
+  gateCheckOnHead: true,
   ...over,
 });
 
@@ -70,6 +73,44 @@ describe("needsReviewRequest", () => {
 
   it("treats a commit in the same second as the verdict as already reviewed", () => {
     expect(needsReviewRequest(pr({ lastCommitAt: VERDICT }), null)).toBe(false);
+  });
+
+  /**
+   * rolodeck-ai#167 and #168. Both were approved after their last commit, so every timestamp
+   * said the review covered the code, and both were permanently unmergeable: updating the
+   * branch had made a new head, and the Gate check sat on the commit it was posted for. The
+   * review workflow's `pull_request` trigger does not fire on a push, so nothing was ever
+   * going to post one. Approved, green, mergeable, blocked, and silent about it.
+   */
+  it("asks when there is no Gate check on the head, even though the verdict is newer", () => {
+    const stuck = pr({
+      gateVerdict: "APPROVED",
+      lastCommitAt: COMMIT_BEFORE,
+      gateCheckOnHead: false,
+    });
+    expect(needsReviewRequest(stuck, null)).toBe(true);
+  });
+
+  // The same guard as every other path: one request per commit, not one every tick while the
+  // review that was asked for is still running and has yet to post its check.
+  it("does not ask twice for a head that still has no check", () => {
+    const stuck = pr({ lastCommitAt: COMMIT_BEFORE, gateCheckOnHead: false });
+    expect(needsReviewRequest(stuck, "2026-09-13T18:18:00Z")).toBe(false);
+  });
+
+  it("asks again when a newer commit lands on a head with no check", () => {
+    const stuck = pr({ lastCommitAt: "2026-09-13T20:10:00Z", gateCheckOnHead: false });
+    expect(needsReviewRequest(stuck, "2026-09-13T19:43:00Z")).toBe(true);
+  });
+
+  /**
+   * The missing-check rule must not reach a pull request whose first review has simply not
+   * finished yet, or every new pull request would get a second review on top of the one the
+   * `pull_request` trigger already started.
+   */
+  it("still leaves a pull request with no verdict alone when it has no check either", () => {
+    const fresh = pr({ gateVerdict: null, gateVerdictAt: null, gateCheckOnHead: false });
+    expect(needsReviewRequest(fresh, null)).toBe(false);
   });
 });
 

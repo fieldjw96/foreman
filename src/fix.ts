@@ -1,13 +1,14 @@
-import type { OpenPullRequest } from "./pulls.ts";
+import { GATE_CHECK, type OpenPullRequest } from "./pulls.ts";
 import type { LiveRun } from "./state.ts";
 
 export type PullRequestState = "needs-fix" | "waiting" | "ready-to-merge";
 
 /**
- * The check the review Gate posts for itself. Named here because it is the one check whose
- * failure says nothing about the code under it.
+ * The check the review Gate posts for itself: the one check whose failure says nothing about
+ * the code under it. It lives in `pulls.ts`, where the rollup it is read from is parsed, and
+ * is re-exported here because this is the module that acts on what it means.
  */
-export const GATE_CHECK = "review";
+export { GATE_CHECK };
 
 /**
  * Whether a Run should be sent back to a pull request.
