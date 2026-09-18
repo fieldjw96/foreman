@@ -60,18 +60,127 @@ export function needsReviewRequest(
   return committedAt > asked;
 }
 
+export type PullComment = { body: string; createdAt: string };
+
+/**
+ * A pull request's comments, fetched once so that everything read from them costs one call
+ * rather than one each. Reading them is the only IO here; what they mean is decided by the
+ * pure functions below, which is what makes those testable.
+ */
+export async function pullComments(repo: string, pr: number): Promise<PullComment[]> {
+  const out = await gh(["pr", "view", String(pr), "--repo", repo, "--json", "comments"]);
+  const { comments } = JSON.parse(out) as { comments: PullComment[] | null };
+  return comments ?? [];
+}
+
 /**
  * When someone last asked for a review on this pull request. Matches the same way the
  * workflow does, on the comment *starting* with the command, so a comment that merely
  * mentions it in prose is correctly not counted as having asked.
+ *
+ * Deliberately not restricted to foreman's own comments: a fix Run that asked for itself has
+ * asked, and asking again on top of it would double the review.
  */
-export async function lastReviewRequestAt(repo: string, pr: number): Promise<string | null> {
-  const out = await gh(["pr", "view", String(pr), "--repo", repo, "--json", "comments"]);
-  const { comments } = JSON.parse(out) as {
-    comments: { body: string; createdAt: string }[] | null;
-  };
-  const requests = (comments ?? []).filter((c) => c.body.startsWith(REVIEW_COMMAND));
+export function lastReviewRequestAt(comments: PullComment[]): string | null {
+  const requests = comments.filter((c) => c.body.startsWith(REVIEW_COMMAND));
   return requests[requests.length - 1]?.createdAt ?? null;
+}
+
+/** Marks a comment as foreman saying a pull request has stopped moving. */
+export const STUCK_MARKER = "<!-- foreman:stuck -->";
+
+/** When foreman last said this pull request was stuck, if it has. */
+export function lastStuckReportAt(comments: PullComment[]): string | null {
+  const reports = comments.filter((c) => c.body.includes(STUCK_MARKER));
+  return reports[reports.length - 1]?.createdAt ?? null;
+}
+
+/**
+ * How long a waiting pull request may go without anything happening before foreman says so.
+ *
+ * Not a tuning knob, and deliberately not in the config file: it is how long a wait stops
+ * being normal, derived rather than guessed. The longest legitimate wait is a review behind a
+ * full CI run, which the review workflow itself bounds at 20 minutes of waiting for other
+ * checks plus the review, so under an hour end to end. Three hours is comfortably past that
+ * and still inside a working morning, so nothing healthy trips it and nothing broken survives
+ * unnoticed for a day.
+ */
+export const STUCK_AFTER_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Whether foreman should say out loud that a pull request has stopped moving.
+ *
+ * Every deadlock so far has lived in the `waiting` state, which means "something is expected
+ * to happen" and has nothing checking that it ever does. rolodeck-ai#167 and #168 sat there
+ * overnight: approved, green, mergeable and unmergeable, and found only because a person
+ * asked whether anything needed attention.
+ *
+ * It reports rather than diagnoses, which is the whole design. A pull request blocked on a
+ * code owner's approval looks identical from here to one blocked on a check nobody will ever
+ * post, and GitHub does not cleanly separate them. Trying to tell them apart would mean a
+ * fragile classifier; saying what is observed means a human decides. A pull request that has
+ * been waiting on Jack for three hours is worth a nudge anyway, so that case is a feature
+ * rather than a false positive.
+ *
+ * Quiet is measured from the newest thing that happened to the pull request, so a review
+ * being asked for counts as progress and the clock restarts. Nothing is stored: every input
+ * is already fetched, which is what keeps GitHub the only durable state.
+ */
+export function needsStuckReport(
+  pr: OpenPullRequest,
+  lastRequestAt: string | null,
+  lastReportAt: string | null,
+  hasLiveRun: boolean,
+  now: Date,
+): boolean {
+  // A Run working on this pull request right now is exactly the thing that will move it, and
+  // it may legitimately take most of an hour before it pushes anything.
+  if (hasLiveRun) return false;
+
+  const quietSince = quietSinceMs(pr, lastRequestAt);
+  if (now.getTime() - quietSince < STUCK_AFTER_MS) return false;
+
+  // Said once per stall, not once per tick. A report older than the last thing that happened
+  // belongs to a previous stall, and this one has not been reported yet.
+  if (lastReportAt === null) return true;
+  return new Date(lastReportAt).getTime() < quietSince;
+}
+
+/** The newest moment anything happened to this pull request. */
+function quietSinceMs(pr: OpenPullRequest, lastRequestAt: string | null): number {
+  return Math.max(
+    ...[pr.lastCommitAt, pr.gateVerdictAt, lastRequestAt]
+      .filter((at): at is string => at !== null)
+      .map((at) => new Date(at).getTime()),
+  );
+}
+
+/**
+ * What foreman says about a stalled pull request: what it can see, and since when. No
+ * instruction and no diagnosis, because it does not know which of the two cases this is.
+ */
+export function stuckReport(pr: OpenPullRequest, lastRequestAt: string | null): string {
+  const since = new Date(quietSinceMs(pr, lastRequestAt)).toISOString();
+  const checks = pr.failedChecks.length === 0 ? "none red" : pr.failedChecks.join(", ");
+  return [
+    STUCK_MARKER,
+    `Nothing has happened here since ${since}, and this pull request is not merging.`,
+    "",
+    `- Gate verdict: ${pr.gateVerdict ?? "none"}`,
+    `- Gate check on the head commit: ${pr.gateCheckOnHead ? "yes" : "no"}`,
+    `- Checks: ${checks}`,
+    `- Mergeable: ${pr.mergeable}, state ${pr.mergeState}`,
+    `- Auto-merge: ${pr.autoMergeArmed ? "armed" : "not armed"}`,
+    "",
+    "foreman is reporting this rather than diagnosing it: waiting on a code owner and waiting",
+    "on something that will never arrive look the same from here. If it is the former, this is",
+    "just a nudge.",
+  ].join("\n");
+}
+
+/** Posts the report. Separate from deciding to, and from what it says. */
+export async function reportStuck(repo: string, pr: number, body: string): Promise<void> {
+  await gh(["pr", "comment", String(pr), "--repo", repo, "--body", body]);
 }
 
 /**

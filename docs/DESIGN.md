@@ -120,6 +120,26 @@ leave browser and end-to-end suites to CI, which is the authority on them and al
 red one back as a fix Run. Running them locally as well buys nothing, and it is what both lost
 Runs were doing when they died.
 
+**A waiting pull request that stops moving gets said out loud, and is not diagnosed.** Of the
+three states a pull request can be in, two look after themselves: `needs-fix` gets a fix Run,
+`ready-to-merge` merges. `waiting` means "something is expected to happen" and nothing checked
+that it ever did, so both deadlocks so far lived there. rolodeck-ai#167 and #168 sat approved,
+green, mergeable and unmergeable overnight, and surfaced only because a person asked whether
+anything needed attention.
+
+It reports rather than diagnoses, deliberately. A pull request blocked on a code owner's
+approval is indistinguishable from here from one blocked on a check nobody will ever post, and
+GitHub does not cleanly separate them. Telling them apart would mean a classifier that is
+wrong sometimes and trusted always; stating what is observed leaves the judgement with the
+person who can make it. A pull request that has been waiting on Jack for three hours deserves
+a nudge anyway, so that case is the feature rather than a false positive.
+
+Three hours is a constant in code with its derivation beside it, not a config knob, because
+the question it answers is "when does waiting stop being normal" rather than "which bug is
+this hiding". Nothing is stored: quiet is measured from the newest thing that already happened
+to the pull request, which keeps GitHub the only durable state, and foreman finds its own
+previous report by a marker comment the same way it already finds its fix Runs.
+
 ## The constraint that shapes everything
 
 JACK_LAPTOP and the server laptop cannot reach each other. Anything the server needs arrives
