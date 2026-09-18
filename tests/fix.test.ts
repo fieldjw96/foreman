@@ -21,6 +21,9 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   mergeState: "CLEAN",
   autoMergeArmed: true,
   gateCheckFailedAt: null,
+  // `classifyPullRequest` does not read this. It is here because `OpenPullRequest` requires it,
+  // and whether a check sits on the head is a question for `needsReviewRequest`, not this one.
+  gateCheckOnHead: true,
   ...over,
 });
 

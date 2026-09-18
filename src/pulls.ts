@@ -1,6 +1,12 @@
 import { gh } from "./gh.ts";
 
 /**
+ * The check the review Gate posts for itself. Named here because it is the one check whose
+ * failure says nothing about the code under it, and because this module reads it twice.
+ */
+export const GATE_CHECK = "review";
+
+/**
  * An open pull request, reduced to the facts that decide whether a Run should be sent back
  * to it: when its branch last changed, what the Gate last said and when, and which checks
  * are currently red.
@@ -31,6 +37,21 @@ export type OpenPullRequest = {
    * this is the reviewer failing to finish rather than the reviewer objecting.
    */
   gateCheckFailedAt: string | null;
+  /**
+   * Whether a Gate check exists on the *current head commit* at all, in any state.
+   *
+   * This is the question the ruleset actually asks, and it is not the same as whether a
+   * verdict exists: a review is recorded against the commit it ran on, and updating a branch
+   * makes a new one. Nothing re-runs the Gate for it, because the review workflow's
+   * `pull_request` trigger fires on opened, reopened and ready_for_review and not on a push.
+   * The check stays behind on the commit it was posted for, and the pull request becomes
+   * approved, green, mergeable and permanently blocked on a check nobody will post.
+   *
+   * Read from `statusCheckRollup`, which GitHub reports for the head commit, and by name
+   * rather than by conclusion, so a review still running counts as present and the supervisor
+   * does not ask for a second one on top of it.
+   */
+  gateCheckOnHead: boolean;
 };
 
 type RawReview = { author: { login: string } | null; state: string; submittedAt: string };
@@ -117,8 +138,11 @@ export async function listOpenPullRequests(
       autoMergeArmed: row.autoMergeRequest !== null && row.autoMergeRequest !== undefined,
       gateCheckFailedAt:
         (row.statusCheckRollup ?? []).find(
-          (c) => c.name === "review" && c.conclusion === "FAILURE",
+          (c) => c.name === GATE_CHECK && c.conclusion === "FAILURE",
         )?.completedAt ?? null,
+      gateCheckOnHead: (row.statusCheckRollup ?? []).some(
+        (c) => c.name === GATE_CHECK,
+      ),
     };
   });
 }

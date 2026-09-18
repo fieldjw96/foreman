@@ -7,18 +7,23 @@ export const REVIEW_COMMAND = "/review";
 /**
  * Whether foreman should ask for a fresh review on a pull request it is otherwise waiting on.
  *
- * Two conditions, both necessary:
+ * Either of two things means yes:
  *
- * 1. **The code has moved past the verdict.** A standing rejection against the current code is
- *    a fix Run's job, not a re-review's.
- * 2. **Nobody has asked since that code landed.** Without this the supervisor would ask again
- *    every five minutes while the review it already requested was still running.
+ * 1. **There is no Gate check on the head commit**, so the pull request cannot merge whatever
+ *    its verdict says. See `gateCheckOnHead` in `pulls.ts` for how a branch ends up like that.
+ * 2. **The code has moved past the verdict.** A standing rejection against the current code is
+ *    a fix Run's job, not a re-review's, but code newer than the verdict needs asking about.
  *
- * A pull request with no verdict at all is deliberately not covered. The `pull_request`
- * trigger reviews those on open, and asking again would double every first review. The case
- * where that initial review never posts a verdict — the reviewer exhausting its turn budget,
- * as on rolodeck-ai#117 — still ends with a human, and pretending otherwise would mean
- * inventing a timeout to guess at.
+ * Both are guarded by the same condition: nobody has asked since that code landed. Without it
+ * the supervisor would ask again every five minutes while the review it already requested was
+ * still running. `lastReviewRequestAt` counts anyone's request, not only foreman's, so a fix
+ * Run that asked for itself is not asked for twice.
+ *
+ * A pull request with no verdict at all is deliberately not covered by either. The
+ * `pull_request` trigger reviews those on open, and asking again would double every first
+ * review. The case where that initial review never posts a verdict — the reviewer exhausting
+ * its turn budget, as on rolodeck-ai#117 — still ends with a human, and pretending otherwise
+ * would mean inventing a timeout to guess at.
  */
 export function needsReviewRequest(
   pr: OpenPullRequest,
@@ -38,6 +43,17 @@ export function needsReviewRequest(
 
   const committedAt = new Date(pr.lastCommitAt).getTime();
   const verdictAt = new Date(pr.gateVerdictAt).getTime();
+
+  // The ruleset requires a Gate check on *this* head, which comparing two timestamps cannot
+  // answer. Updating a branch makes a new head and no review re-runs for it, so the check
+  // stays on the commit it was posted for while the verdict, recorded later, still reads as
+  // newer than the commit — and the rule below then says there is nothing to do. rolodeck-ai
+  // #167 and #168 were both approved, green, mergeable and unmergeable at once, and neither
+  // was noticed until a person went looking.
+  if (!pr.gateCheckOnHead) {
+    return lastRequestAt === null || committedAt > asked;
+  }
+
   if (committedAt <= verdictAt) return false;
 
   if (lastRequestAt === null) return true;
