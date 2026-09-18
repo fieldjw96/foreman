@@ -3,6 +3,12 @@ import {
   needsReviewRequest,
   needsBranchUpdate,
   needsAutoMergeArming,
+  needsStuckReport,
+  lastReviewRequestAt,
+  lastStuckReportAt,
+  stuckReport,
+  STUCK_AFTER_MS,
+  STUCK_MARKER,
   REVIEW_COMMAND,
 } from "../src/rereview.ts";
 import type { OpenPullRequest } from "../src/pulls.ts";
@@ -187,5 +193,111 @@ describe("needsReviewRequest, after the Gate's check failed", () => {
 
   it("asks when the reviewer failed and nobody has ever asked", () => {
     expect(needsReviewRequest(pr({ gateCheckFailedAt: FAILED_AT }), null)).toBe(true);
+  });
+});
+
+describe("reading a pull request's comments", () => {
+  const comments = [
+    { body: "Looks good to me", createdAt: "2026-09-13T10:00:00Z" },
+    { body: "/review", createdAt: "2026-09-13T11:00:00Z" },
+    { body: `${STUCK_MARKER}\nNothing has happened here since...`, createdAt: "2026-09-13T12:00:00Z" },
+    { body: "/review", createdAt: "2026-09-13T13:00:00Z" },
+  ];
+
+  it("takes the latest review request, whoever posted it", () => {
+    expect(lastReviewRequestAt(comments)).toBe("2026-09-13T13:00:00Z");
+  });
+
+  // The workflow matches on the comment *starting* with the command, and so does this.
+  it("does not count a comment that merely mentions the command", () => {
+    const prose = [{ body: "I think we should /review this again", createdAt: "2026-09-13T14:00:00Z" }];
+    expect(lastReviewRequestAt(prose)).toBeNull();
+  });
+
+  it("finds its own stuck report by marker", () => {
+    expect(lastStuckReportAt(comments)).toBe("2026-09-13T12:00:00Z");
+  });
+
+  it("reports nothing when it has never spoken", () => {
+    expect(lastStuckReportAt([{ body: "/review", createdAt: "2026-09-13T11:00:00Z" }])).toBeNull();
+  });
+});
+
+describe("needsStuckReport", () => {
+  const QUIET = "2026-09-13T12:00:00Z";
+  const quietFor = (ms: number) => new Date(new Date(QUIET).getTime() + ms);
+  // A pull request whose newest activity is QUIET: waiting, approved, and not moving.
+  const stalled = pr({
+    gateVerdict: "APPROVED",
+    gateVerdictAt: QUIET,
+    lastCommitAt: "2026-09-13T11:30:00Z",
+    mergeState: "BLOCKED",
+  });
+
+  /**
+   * rolodeck-ai#167 and #168. Both sat approved, green, mergeable and unmergeable overnight,
+   * and were found only because a person asked whether anything needed attention. Nothing in
+   * the supervisor was watching the one state that can last forever.
+   */
+  it("speaks once a waiting pull request has been quiet for the threshold", () => {
+    expect(needsStuckReport(stalled, null, null, false, quietFor(STUCK_AFTER_MS))).toBe(true);
+  });
+
+  it("stays quiet before the threshold", () => {
+    expect(needsStuckReport(stalled, null, null, false, quietFor(STUCK_AFTER_MS - 1000))).toBe(false);
+  });
+
+  // A Run against this branch is the thing that will move it, and may take most of an hour
+  // before it pushes anything.
+  it("says nothing while a Run is working on the branch", () => {
+    expect(needsStuckReport(stalled, null, null, true, quietFor(STUCK_AFTER_MS * 10))).toBe(false);
+  });
+
+  it("does not repeat itself while the pull request stays quiet", () => {
+    const reportedAt = new Date(quietFor(STUCK_AFTER_MS).getTime()).toISOString();
+    expect(needsStuckReport(stalled, null, reportedAt, false, quietFor(STUCK_AFTER_MS * 2))).toBe(false);
+  });
+
+  // A report older than the newest activity belongs to a previous stall. This is a new one.
+  it("speaks again about a fresh stall after something happened in between", () => {
+    const moved = pr({
+      gateVerdict: "APPROVED",
+      gateVerdictAt: "2026-09-14T09:00:00Z",
+      lastCommitAt: "2026-09-14T09:00:00Z",
+    });
+    const now = new Date(new Date("2026-09-14T09:00:00Z").getTime() + STUCK_AFTER_MS);
+    expect(needsStuckReport(moved, null, "2026-09-13T15:00:00Z", false, now)).toBe(true);
+  });
+
+  // Asking for a review is something happening, so the clock restarts from the request.
+  it("counts a review request as progress", () => {
+    const askedAt = new Date(quietFor(STUCK_AFTER_MS - 1000).getTime()).toISOString();
+    expect(needsStuckReport(stalled, askedAt, null, false, quietFor(STUCK_AFTER_MS))).toBe(false);
+  });
+});
+
+describe("stuckReport", () => {
+  it("carries the marker, so foreman can find its own report later", () => {
+    expect(stuckReport(pr(), null)).toContain(STUCK_MARKER);
+  });
+
+  /**
+   * It reports rather than diagnoses: a pull request blocked on a code owner looks the same
+   * from here as one blocked on a check nobody will post. The body must therefore state what
+   * was observed, so a reader can tell which it is.
+   */
+  it("states what it can see rather than what it thinks", () => {
+    const body = stuckReport(
+      pr({ gateVerdict: "APPROVED", gateCheckOnHead: false, mergeState: "BLOCKED", failedChecks: [] }),
+      null,
+    );
+    expect(body).toContain("APPROVED");
+    expect(body).toContain("Gate check on the head commit: no");
+    expect(body).toContain("BLOCKED");
+    expect(body).toContain("none red");
+  });
+
+  it("names the red checks when there are any", () => {
+    expect(stuckReport(pr({ failedChecks: ["ci", "perf"] }), null)).toContain("ci, perf");
   });
 });

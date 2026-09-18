@@ -10,7 +10,12 @@ import { listOpenPullRequests, reviewFindings, failedCheckLog, type OpenPullRequ
 import { chooseFixes, classifyPullRequest } from "./fix.ts";
 import {
   needsReviewRequest,
+  pullComments,
   lastReviewRequestAt,
+  lastStuckReportAt,
+  needsStuckReport,
+  stuckReport,
+  reportStuck,
   requestReview,
   needsBranchUpdate,
   updateBranch,
@@ -167,14 +172,32 @@ async function runTick(config: Config): Promise<void> {
     }
   }
 
+  // "waiting" is the one state nothing else watches. A needs-fix pull request gets a fix Run
+  // and a ready-to-merge one merges; waiting means "something is expected to happen" with
+  // nothing checking that it ever does. Both deadlocks so far lived here, which is why the
+  // same loop now asks for the review and, failing that, says so when nothing is coming.
   for (const pr of pulls) {
     if (classifyPullRequest(pr) !== "waiting") continue;
     try {
-      if (!needsReviewRequest(pr, await lastReviewRequestAt(pr.repo, pr.number))) continue;
-      await requestReview(pr.repo, pr.number);
-      log(`  asked for a fresh review on PR #${pr.number}`);
+      const comments = await pullComments(pr.repo, pr.number);
+      const askedAt = lastReviewRequestAt(comments);
+
+      if (needsReviewRequest(pr, askedAt)) {
+        await requestReview(pr.repo, pr.number);
+        log(`  asked for a fresh review on PR #${pr.number}`);
+        continue;
+      }
+
+      const working = stillRunning.some(
+        (run) => run.repo === pr.repo && run.branch === pr.branch,
+      );
+      if (!needsStuckReport(pr, askedAt, lastStuckReportAt(comments), working, new Date())) {
+        continue;
+      }
+      await reportStuck(pr.repo, pr.number, stuckReport(pr, askedAt));
+      log(`  said PR #${pr.number} has stopped moving`);
     } catch (err) {
-      log(`  could not request a review on PR #${pr.number}: ${(err as Error).message}`);
+      log(`  could not follow up on PR #${pr.number}: ${(err as Error).message}`);
     }
   }
 
