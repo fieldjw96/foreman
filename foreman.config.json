@@ -14,6 +14,10 @@
     {
       "name": "fieldjw96/rolodeck-ai",
       "clonePath": "${OneDrive}/Projects/Repositories/rolodeck-ai"
+    },
+    {
+      "name": "fieldjw96/caddie",
+      "clonePath": "${OneDrive}/Projects/Repositories/caddie"
     }
   ]
 }
