@@ -18,6 +18,10 @@
     {
       "name": "fieldjw96/caddie",
       "clonePath": "${OneDrive}/Projects/Repositories/caddie"
+    },
+    {
+      "name": "fieldjw96/pegasus-companion",
+      "clonePath": "${OneDrive}/Projects/Repositories/pegasus-companion"
     }
   ]
 }
