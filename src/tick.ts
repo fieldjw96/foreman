@@ -1,9 +1,47 @@
 import { repoRoot, type Config } from "./config.ts";
-import { listTickets, setStatus, comment, findPullRequest, countFailedAttempts, type Ticket } from "./gh.ts";
-import { STATUS, ALL_STATUSES } from "./labels.ts";
-import { readState, writeState, statePath, isProcessAlive, type LiveRun } from "./state.ts";
-import { branchName, worktreePath, createWorktree, removeWorktree, checkoutExistingBranch } from "./git.ts";
-import { launchRun, killRun } from "./launch.ts";
+import { readFileSync } from "node:fs";
+import {
+  listTickets,
+  setStatus,
+  comment,
+  findPullRequest,
+  countFailedAttempts,
+  createIssue,
+  listOpenPitches,
+  closeNotPlanned,
+  type Ticket,
+} from "./gh.ts";
+import { STATUS, ALL_STATUSES, PITCH } from "./labels.ts";
+import {
+  readState,
+  writeState,
+  statePath,
+  isProcessAlive,
+  type LiveRun,
+  type ScoutRun,
+  type TicketRun,
+} from "./state.ts";
+import {
+  branchName,
+  worktreePath,
+  scoutWorktreePath,
+  createWorktree,
+  createDetachedWorktree,
+  removeWorktree,
+  checkoutExistingBranch,
+} from "./git.ts";
+import { launchRun, launchScout, killRun } from "./launch.ts";
+import {
+  isScout,
+  runName,
+  localDate,
+  needsScout,
+  parsePitches,
+  pitchTitle,
+  pitchBody,
+  expiredPitches,
+  EXPIRED_COMMENT,
+} from "./scout.ts";
 import { classifyRun, freeSlots, chooseTickets, outcomeOf } from "./decide.ts";
 import { acquireLock, releaseLock, lockPath } from "./lock.ts";
 import { listOpenPullRequests, reviewFindings, failedCheckLog, type OpenPullRequest } from "./pulls.ts";
@@ -40,7 +78,7 @@ function cloneFor(config: Config, repo: string): string {
 }
 
 /** Ends one Run: label the Ticket by outcome, then take the worktree back. */
-async function settle(config: Config, run: LiveRun, timedOut: boolean): Promise<void> {
+async function settle(config: Config, run: TicketRun, timedOut: boolean): Promise<void> {
   // Anchored to when this Run started, so a pull request from an earlier attempt on the
   // same branch cannot be mistaken for this Run's work.
   const pr = await findPullRequest(run.repo, run.branch, new Date(run.startedAt));
@@ -65,6 +103,34 @@ async function settle(config: Config, run: LiveRun, timedOut: boolean): Promise<
   }
 
   await removeWorktree(cloneFor(config, run.repo), run.worktree);
+}
+
+/**
+ * Ends a Scout: file its Pitches, if it produced a valid set, and take the worktree back.
+ *
+ * Yesterday's undecided Pitches are expired only once today's are known to be good. A Scout
+ * that failed leaves Jack yesterday's Pitches to decide on rather than nothing at all.
+ */
+async function settleScout(config: Config, run: ScoutRun, timedOut: boolean): Promise<void> {
+  try {
+    const parsed = parsePitches(timedOut ? "" : readFileSync(run.logFile, "utf8"));
+    if (!parsed.ok) {
+      const why = timedOut ? `timed out after ${config.runTimeoutMinutes} minutes` : parsed.reason;
+      log(`  ${runName(run)} filed nothing: ${why}. Log: ${run.logFile}`);
+      return;
+    }
+
+    for (const number of expiredPitches(await listOpenPitches(run.repo, PITCH), run.date)) {
+      await closeNotPlanned(run.repo, number, EXPIRED_COMMENT);
+      log(`  expired undecided Pitch #${number} on ${run.repo}`);
+    }
+    for (const pitch of parsed.pitches) {
+      const number = await createIssue(run.repo, pitchTitle(pitch), pitchBody(pitch, run.date), [PITCH]);
+      log(`  filed Pitch #${number} on ${run.repo}: ${pitch.title}`);
+    }
+  } finally {
+    await removeWorktree(cloneFor(config, run.repo), run.worktree);
+  }
 }
 
 /**
@@ -99,6 +165,8 @@ async function runTick(config: Config): Promise<void> {
   const path = statePath(config.worktreeRoot);
   const state = readState(path);
   const stillRunning: LiveRun[] = [];
+  const scouted = { ...(state.scouted ?? {}) };
+  const save = () => writeState(path, { runs: stillRunning, scouted });
 
   for (const run of state.runs) {
     const verdict = classifyRun(run, isProcessAlive(run.pid), config.runTimeoutMinutes);
@@ -108,18 +176,19 @@ async function runTick(config: Config): Promise<void> {
     }
     if (verdict === "timed-out") killRun(run.pid);
     try {
-      await settle(config, run, verdict === "timed-out");
+      if (isScout(run)) await settleScout(config, run, verdict === "timed-out");
+      else await settle(config, run, verdict === "timed-out");
     } catch (err) {
       // Leave it out of state either way. A Run whose settle failed is finished; retrying
       // the settle for ever would hold a slot on a process that no longer exists.
-      log(`  #${run.issue} could not be settled cleanly: ${(err as Error).message}`);
+      log(`  ${runName(run)} could not be settled cleanly: ${(err as Error).message}`);
     }
   }
 
   const slots = freeSlots(config.maxConcurrent, stillRunning.length);
   log(`${stillRunning.length} running, ${slots} slot(s) free`);
   if (slots === 0) {
-    writeState(path, { runs: stillRunning });
+    save();
     return;
   }
 
@@ -189,7 +258,7 @@ async function runTick(config: Config): Promise<void> {
       }
 
       const working = stillRunning.some(
-        (run) => run.repo === pr.repo && run.branch === pr.branch,
+        (run) => !isScout(run) && run.repo === pr.repo && run.branch === pr.branch,
       );
       if (!needsStuckReport(pr, askedAt, lastStuckReportAt(comments), working, new Date())) {
         continue;
@@ -268,7 +337,7 @@ async function runTick(config: Config): Promise<void> {
   }
 
   if (remaining === 0) {
-    writeState(path, { runs: stillRunning });
+    save();
     return;
   }
 
@@ -300,6 +369,7 @@ async function runTick(config: Config): Promise<void> {
         logFile,
         startedAt: startedAt.toISOString(),
       });
+      remaining -= 1;
       log(`  started #${ticket.number} as pid ${pid} in ${worktree}`);
     } catch (err) {
       log(`  could not start #${ticket.number}: ${(err as Error).message}`);
@@ -308,5 +378,36 @@ async function runTick(config: Config): Promise<void> {
     }
   }
 
-  writeState(path, { runs: stillRunning });
+  // Scouts come last. They suggest work rather than doing it, and every Run draws on the same
+  // subscription window, so a Scout only ever takes a slot no Ticket wanted. Overnight that is
+  // most of them, which is when the next day's Pitches should be written anyway.
+  const today = localDate();
+  for (const repo of config.repos) {
+    if (remaining === 0) break;
+    if (!needsScout(repo.name, today, scouted, stillRunning)) continue;
+    // Recorded before the launch, so a Scout that cannot start is not retried every tick.
+    scouted[repo.name] = today;
+    const worktree = scoutWorktreePath(config.worktreeRoot, repo.name);
+    try {
+      await createDetachedWorktree(repo.clonePath, worktree, repo.baseBranch);
+      const startedAt = new Date();
+      const { pid, logFile } = launchScout(config, repo.name, worktree, today, startedAt);
+      stillRunning.push({
+        kind: "scout",
+        repo: repo.name,
+        date: today,
+        pid,
+        worktree,
+        logFile,
+        startedAt: startedAt.toISOString(),
+      });
+      remaining -= 1;
+      log(`  started the ${repo.name} Scout as pid ${pid}`);
+    } catch (err) {
+      log(`  could not start the ${repo.name} Scout: ${(err as Error).message}`);
+      await removeWorktree(repo.clonePath, worktree).catch(() => {});
+    }
+  }
+
+  save();
 }

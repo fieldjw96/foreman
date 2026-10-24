@@ -1,5 +1,6 @@
 import { GATE_CHECK, type OpenPullRequest } from "./pulls.ts";
 import type { LiveRun } from "./state.ts";
+import { isTicketRun } from "./scout.ts";
 
 export type PullRequestState = "needs-fix" | "waiting" | "ready-to-merge";
 
@@ -90,7 +91,7 @@ export function chooseFixes(
   slots: number,
   now: Date = new Date(),
 ): OpenPullRequest[] {
-  const busy = new Set(live.map((r) => `${r.repo}#${r.issue}`));
+  const busy = new Set(live.filter(isTicketRun).map((r) => `${r.repo}#${r.issue}`));
   return pulls
     .filter((pr) => classifyPullRequest(pr, now) === "needs-fix")
     .filter((pr) => pr.issue !== null && !busy.has(`${pr.repo}#${pr.issue}`))

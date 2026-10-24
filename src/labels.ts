@@ -13,6 +13,13 @@ export const STATUS = {
   needsHuman: "status:needs-human",
 } as const;
 
+/**
+ * Pitches are deliberately not a status. A status is something foreman acts on, and foreman
+ * never builds a Pitch: it only files them and expires the ones nobody decided on.
+ */
+export const PITCH = "pitch";
+export const PITCH_PICKED = "pitch:picked";
+
 export type Status = (typeof STATUS)[keyof typeof STATUS];
 
 export const ALL_STATUSES: Status[] = Object.values(STATUS);

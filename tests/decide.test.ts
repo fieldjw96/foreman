@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { classifyRun, freeSlots, chooseTickets, outcomeOf } from "../src/decide.ts";
-import type { LiveRun } from "../src/state.ts";
+import type { LiveRun, TicketRun } from "../src/state.ts";
 import type { Ticket } from "../src/gh.ts";
 
-const run = (over: Partial<LiveRun> = {}): LiveRun => ({
+const run = (over: Partial<TicketRun> = {}): TicketRun => ({
   repo: "o/r", issue: 1, pid: 100, branch: "ticket/1",
   worktree: "C:/agent-runs/r/1", logFile: "x.log",
   startedAt: "2026-09-10T12:00:00.000Z", ...over,

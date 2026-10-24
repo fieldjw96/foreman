@@ -1,7 +1,9 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 
-export type LiveRun = {
+/** A Run working a Ticket. State written before Scouts existed has no `kind`, and is one of these. */
+export type TicketRun = {
+  kind?: "ticket";
   repo: string;
   issue: number;
   pid: number;
@@ -11,7 +13,25 @@ export type LiveRun = {
   startedAt: string;
 };
 
-export type State = { runs: LiveRun[] };
+/** A Run reading a repo for Pitches. It has no Ticket and no branch. */
+export type ScoutRun = {
+  kind: "scout";
+  repo: string;
+  /** The local day it is scouting for, which is the day its Pitches are filed under. */
+  date: string;
+  pid: number;
+  worktree: string;
+  logFile: string;
+  startedAt: string;
+};
+
+export type LiveRun = TicketRun | ScoutRun;
+
+/**
+ * `scouted` maps a repo to the last day a Scout was launched for it. Losing it costs at most
+ * one extra Scout, which is the same bargain the rest of this file makes.
+ */
+export type State = { runs: LiveRun[]; scouted?: Record<string, string> };
 
 const EMPTY: State = { runs: [] };
 
