@@ -1,4 +1,6 @@
 import type { Ticket } from "./gh.ts";
+import { PITCH } from "./labels.ts";
+import { PITCHES_START, PITCHES_END, PITCHES_PER_DAY } from "./scout.ts";
 
 /**
  * The Run opens its own pull request. That is what lets the supervisor stay dumb: it never
@@ -148,4 +150,66 @@ export function buildFixPrompt(context: FixContext): string {
   );
 
   return lines.join("\n");
+}
+
+/**
+ * A Scout suggests work; it does not do any. It is told what a good Pitch looks like and
+ * where the repo's history is, and it ends by printing exactly three Pitches between markers
+ * for the supervisor to file. It files nothing itself, so the count and the format are
+ * enforced by a parse in code rather than by this prompt.
+ *
+ * Rejected Pitches are its memory. Nothing is stored anywhere else: what Jack closed as not
+ * planned is the most direct statement available of what he does not want, and it is already
+ * on GitHub.
+ */
+export function buildScoutPrompt(repo: string, date: string): string {
+  return [
+    `You are the Scout for ${repo}. Your job today, ${date}, is to propose exactly ${PITCHES_PER_DAY}`,
+    "fixes or features worth building next. Jack reads them this morning and picks which become",
+    "Tickets for the engineering agents. You change nothing: no files, no issues, no comments.",
+    "",
+    "You are in a read-only checkout of the repo's main branch on local disk.",
+    "",
+    "Learn the product first:",
+    "1. Read CLAUDE.md, CONTEXT.md, README.md and every ADR under docs/. Use the vocabulary",
+    "   CONTEXT.md defines. An ADR is a decision already made: never pitch against one.",
+    "2. Read enough of the code to know what actually exists, not what the docs hope exists.",
+    `3. Read what is already in flight, so you do not pitch it again:`,
+    `     gh issue list --repo ${repo} --state open --limit 100`,
+    `     gh pr list --repo ${repo} --state merged --limit 30`,
+    `4. Read every past Pitch: gh issue list --repo ${repo} --label ${PITCH} --state all --limit 100 --json number,title,state,stateReason,labels`,
+    "   - Open, or labelled pitch:picked: already on the table. Do not repeat it.",
+    "   - Closed as not planned with no \"Expired\" comment: Jack rejected it. Do not pitch it or",
+    "     a near variant, and read the rejections together for what they say about his taste.",
+    "   - Closed as not planned with an \"Expired\" comment: nobody decided. Pitch it again only",
+    "     if you now have stronger evidence for it.",
+    "5. If the README names a live site, you may fetch it and look at what a user actually sees.",
+    "",
+    "What makes a good Pitch:",
+    "- It moves the product toward what its docs say it is for. Bugs a user would hit and gaps",
+    "  between the stated purpose and the shipped product beat polish.",
+    "- It rests on evidence you can point at: a file and line, an issue, an ADR, a page on the",
+    "  live site. A Pitch you cannot ground is a guess; leave it out.",
+    "- It is one piece of work a single agent could finish in under an hour, or it says plainly",
+    "  that it is larger and why it is still worth it.",
+    "- The three are different from each other. Mix fixes and features when the repo supports it.",
+    "",
+    "When you are done, end your reply with the three Pitches as a JSON array between these",
+    "markers, each on its own line, with nothing after the closing marker:",
+    "",
+    PITCHES_START,
+    "[",
+    '  {',
+    '    "title": "short imperative title, under 70 characters",',
+    '    "kind": "fix" or "feature",',
+    '    "problem": "what is wrong or missing today, and who it affects",',
+    '    "proposal": "what to build, in a few sentences. Not acceptance criteria.",',
+    '    "evidence": "the files, issues, ADRs or pages that show the problem is real",',
+    '    "size": "small", "medium" or "large"',
+    "  }",
+    "]",
+    PITCHES_END,
+    "",
+    `Exactly ${PITCHES_PER_DAY}. Anything else is discarded and nothing reaches Jack today.`,
+  ].join("\n");
 }

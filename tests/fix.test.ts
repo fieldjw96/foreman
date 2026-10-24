@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { classifyPullRequest, chooseFixes } from "../src/fix.ts";
 import { closesIssue, latestGateVerdict } from "../src/pulls.ts";
 import type { OpenPullRequest } from "../src/pulls.ts";
-import type { LiveRun } from "../src/state.ts";
+import type { LiveRun, TicketRun } from "../src/state.ts";
 
 const COMMIT = "2026-09-13T18:17:04Z";
 const BEFORE = "2026-09-13T18:10:00Z";
@@ -27,7 +27,7 @@ const pr = (over: Partial<OpenPullRequest> = {}): OpenPullRequest => ({
   ...over,
 });
 
-const run = (over: Partial<LiveRun> = {}): LiveRun => ({
+const run = (over: Partial<TicketRun> = {}): TicketRun => ({
   repo: "o/r",
   issue: 121,
   pid: 100,

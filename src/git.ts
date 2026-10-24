@@ -18,6 +18,11 @@ export function worktreePath(worktreeRoot: string, repo: string, issue: number):
   return join(worktreeRoot, repo.split("/")[1] ?? repo, String(issue));
 }
 
+/** A Scout has no issue number, and there is at most one per repo, so it gets a fixed name. */
+export function scoutWorktreePath(worktreeRoot: string, repo: string): string {
+  return join(worktreeRoot, repo.split("/")[1] ?? repo, "scout");
+}
+
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await run("git", ["-C", cwd, ...args], { windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
   return stdout;
@@ -32,6 +37,20 @@ export async function createWorktree(
   await git(clonePath, ["fetch", "origin", baseBranch, "--quiet"]);
   await removeWorktree(clonePath, worktree).catch(() => {});
   await git(clonePath, ["worktree", "add", "-B", branch, worktree, `origin/${baseBranch}`]);
+}
+
+/**
+ * A worktree with no branch, for a Scout. It reads the base branch and commits nothing, so
+ * there is no branch for it to leave behind.
+ */
+export async function createDetachedWorktree(
+  clonePath: string,
+  worktree: string,
+  baseBranch: string,
+): Promise<void> {
+  await git(clonePath, ["fetch", "origin", baseBranch, "--quiet"]);
+  await removeWorktree(clonePath, worktree).catch(() => {});
+  await git(clonePath, ["worktree", "add", "--detach", worktree, `origin/${baseBranch}`]);
 }
 
 /**

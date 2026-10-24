@@ -140,6 +140,36 @@ this hiding". Nothing is stored: quiet is measured from the newest thing that al
 to the pull request, which keeps GitHub the only durable state, and foreman finds its own
 previous report by a marker comment the same way it already finds its fix Runs.
 
+**Suggesting work is a Run, and it comes last.** A Scout proposes three Pitches a day for each
+repo, so the queue does not run dry while waiting on Jack to think of the next thing. It is a
+Run rather than a separate scheduled job because every Run draws on one subscription window,
+and only the tick knows how much of it is in use. It takes a slot only once fixes and
+`status:ready` Tickets have taken theirs, so it never competes with work that already has a
+Ticket, and on a busy day it waits for the night. That ordering is the priority, so there is
+no knob.
+
+This is not the Warden. The Warden was summoned by the system's own state and wrote about the
+system. A Scout is summoned by the calendar, writes about the product, and supervises
+nothing.
+
+**The Scout does not file its own Pitches.** It prints them between markers, and foreman parses
+them: exactly three, every field present, or nothing is filed. A Run's account of what it
+did is the thing this design keeps refusing to trust. Here a parse is the unambiguous signal,
+the same role an opened pull request plays for a Ticket Run. Printing rather than writing a
+file also means the Scout needs no write tool at all. Its shell is limited to read-only `gh`
+and `git` commands.
+
+**One Scout attempt per repo per day, recorded at launch.** Recording success instead would let
+a Scout that always fails relaunch every five minutes and burn the window. The day lives in
+the state file next to the pids, and losing it costs at most one extra Scout. Yesterday's
+undecided Pitches are expired only once today's are known to be good, so a failed Scout
+leaves Jack with yesterday's Pitches rather than none.
+
+**Pitches never become Tickets on their own.** A Pitch carries no Acceptance Criteria, on
+purpose. Step 1 of the workflow, talking until a feature is clear, is the part that matters,
+and a Scout writing its own criteria would skip it. The label Jack adds, `pitch:picked`, is a
+note to himself, and foreman reads it for one thing only: not expiring the Pitch.
+
 ## The constraint that shapes everything
 
 JACK_LAPTOP and the server laptop cannot reach each other. Anything the server needs arrives

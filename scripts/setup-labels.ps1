@@ -15,7 +15,9 @@ $labels = @(
     @{ name = "status:needs-human"; color = "B60205"; desc = "Out of attempts. Nothing retries it." },
     @{ name = "complexity:high";     color = "3F2B96"; desc = "Needs the strongest model: design, judgement, unfamiliar ground" },
     @{ name = "complexity:standard"; color = "6E7781"; desc = "Ordinary feature work against a clear spec" },
-    @{ name = "complexity:low";      color = "C5DEF5"; desc = "Mechanical: renames, bumps, test backfills, config" }
+    @{ name = "complexity:low";      color = "C5DEF5"; desc = "Mechanical: renames, bumps, test backfills, config" },
+    @{ name = "pitch";               color = "F9D0C4"; desc = "A Scout's suggestion. Never built until it becomes a Ticket." },
+    @{ name = "pitch:picked";        color = "E99695"; desc = "Jack kept this Pitch. Turn it into a Ticket with ticket-writer." }
 )
 
 foreach ($l in $labels) {

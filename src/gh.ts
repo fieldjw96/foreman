@@ -101,6 +101,36 @@ export function pickFreshPullRequest(
   return fresh.sort((a, b) => b.number - a.number)[0]?.number ?? null;
 }
 
+/** Files an issue and returns its number, read off the URL gh prints. */
+export async function createIssue(repo: string, title: string, body: string, labels: string[]): Promise<number> {
+  const args = ["issue", "create", "--repo", repo, "--title", title, "--body", body];
+  for (const label of labels) args.push("--label", label);
+  const url = (await gh(args)).trim();
+  const number = Number(url.split("/").pop());
+  if (!Number.isInteger(number)) throw new Error(`gh issue create printed no issue URL: ${url}`);
+  return number;
+}
+
+export async function listOpenPitches(
+  repo: string,
+  label: string,
+): Promise<{ number: number; labels: string[]; createdAt: string }[]> {
+  const out = await gh([
+    "issue", "list",
+    "--repo", repo,
+    "--label", label,
+    "--state", "open",
+    "--limit", "100",
+    "--json", "number,labels,createdAt",
+  ]);
+  const raw = JSON.parse(out) as { number: number; labels: { name: string }[]; createdAt: string }[];
+  return raw.map((p) => ({ number: p.number, labels: p.labels.map((l) => l.name), createdAt: p.createdAt }));
+}
+
+export async function closeNotPlanned(repo: string, issue: number, body: string): Promise<void> {
+  await gh(["issue", "close", String(issue), "--repo", repo, "--reason", "not planned", "--comment", body]);
+}
+
 /** How many times a Run has already failed on this Ticket, counted from GitHub, not locally. */
 export async function countFailedAttempts(repo: string, issue: number, marker: string): Promise<number> {
   const out = await gh([

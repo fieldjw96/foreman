@@ -1,5 +1,5 @@
 ---
-description: Turn a conversation about a feature, bug or chore into a GitHub issue with machine-checkable acceptance criteria and a routing lane. Use when the user wants to write, file, create or raise a ticket or issue, or when a discussion has settled into work worth capturing.
+description: Turn a conversation about a feature, bug or chore into a GitHub issue with machine-checkable acceptance criteria and a routing lane. Use when the user wants to write, file, create or raise a ticket or issue, when a discussion has settled into work worth capturing, or when the user wants to go through, decide on or ticket the day's Pitches.
 ---
 
 # Ticket Writer
@@ -9,6 +9,28 @@ Turn a conversation into one Ticket a coding agent can complete unsupervised.
 The value here is not the `gh` invocation. It is refusing to file work that is not ready.
 An underspecified Ticket does not fail loudly; it produces a plausible pull request that
 solves the wrong problem, and the cost lands on Jack at review time.
+
+## Starting from a Pitch
+
+A Pitch is an issue labelled `pitch`, filed by foreman's Scout: a problem, a proposal and
+the evidence for it, with no Acceptance Criteria. Jack keeps one by adding `pitch:picked`.
+When he wants to work through them, list the picked ones and any still undecided:
+
+    gh issue list --repo <repo> --label pitch --state open
+
+A picked Pitch is where the conversation starts, not where it ends. Check its evidence
+against the code before relying on it: the Scout reads the repo, but it can be wrong. Then
+hold it to the same bar as anything else below. A Pitch that cannot reach that bar stays a
+Pitch.
+
+When a Ticket is filed from a Pitch, add `From pitch #<n>.` to its Notes, then close the Pitch
+as completed with a comment naming the Ticket:
+
+    gh issue close <n> --repo <repo> --reason completed --comment "Became #<ticket>."
+
+To reject a Pitch, close it as not planned and include a reason in the comment if Jack gives
+one. The next Scout reads rejections to learn what not to suggest, and a reason teaches it
+more than a bare closure does.
 
 ## Before writing anything
 

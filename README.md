@@ -35,9 +35,33 @@ Each tick, in order:
 5. **Claim new Tickets.** Fills any remaining slots from `status:ready`, hardest complexity
    first, lowest issue number breaking ties. Tickets with an open `blocked-by` relationship
    are skipped until it clears.
+6. **Scout.** Any slot still free goes to a Scout for a repo that has not been scouted
+   today. See [Pitches](#pitches).
 
 Finishing work outranks starting more of it: steps 3 and 4 run before step 5, so an open
-pull request is never left to rot while new branches land on top of it.
+pull request is never left to rot while new branches land on top of it. Suggesting work
+comes after all of it.
+
+## Pitches
+
+Once a day per repo, a **Scout** reads the repo (docs, ADRs, code, open and merged work,
+every past Pitch) and proposes three fixes or features. A Scout is a Run like any other:
+it takes a slot, it is timed out, and it is reaped. It only ever gets a slot that no Ticket
+wanted, so it usually runs overnight. It changes nothing. Its tools are read-only, and it
+prints its Pitches rather than filing them. When the Scout is reaped, foreman checks there
+are exactly three well-formed Pitches, then files each as an issue labelled `pitch`.
+
+A Pitch is a short case (problem, proposal, evidence, size), not a Ticket, and foreman
+never builds one. Each day Jack:
+
+- **keeps** a Pitch by adding `pitch:picked`, then turns it into a Ticket with
+  `ticket-writer`, which closes the Pitch;
+- **rejects** a Pitch by closing it as not planned. Rejections are what the next Scout reads
+  to learn what not to suggest;
+- **ignores** a Pitch, and it is closed as expired when the next day's Pitches are filed.
+
+A Scout gets one attempt per repo per day. One that fails files nothing, logs why, and
+leaves the previous day's Pitches open.
 
 ## Ticket lifecycle
 
@@ -90,7 +114,8 @@ the tick that needed it.
 
 1. Add it to `repos`. **A repo missing from that array is never read, and nothing reports
    its Tickets as ignored.**
-2. `.\scripts\setup-labels.ps1 -Repo "owner/name"` to create the label set.
+2. `.\scripts\setup-labels.ps1 -Repo "owner/name"` to create the label set, `pitch` and
+   `pitch:picked` included. Without `pitch` the Scout's issues cannot be filed.
 3. Place its secrets at `<secretsDir>\<name>.env`.
 
 ## Installing the scheduler

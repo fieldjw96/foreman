@@ -2,6 +2,7 @@ import { loadConfig } from "./config.ts";
 import { tick } from "./tick.ts";
 import { readState, statePath, isProcessAlive, ageMinutes } from "./state.ts";
 import { killRun } from "./launch.ts";
+import { runName } from "./scout.ts";
 
 const command = process.argv[2] ?? "tick";
 const config = loadConfig();
@@ -23,20 +24,20 @@ switch (command) {
     for (const run of runs) {
       const alive = isProcessAlive(run.pid) ? "alive" : "DEAD, will settle next tick";
       console.log(
-        `  ${run.repo}#${run.issue}  pid ${run.pid}  ${ageMinutes(run.startedAt).toFixed(0)}m  ${alive}`,
+        `  ${runName(run)}  pid ${run.pid}  ${ageMinutes(run.startedAt).toFixed(0)}m  ${alive}`,
       );
       console.log(`    log: ${run.logFile}`);
     }
     break;
   }
 
-  // Kills every Run in flight but leaves their Tickets alone. The next tick settles them
+  // Kills every Run in flight, Scouts included, but leaves their Tickets alone. The next tick settles them
   // normally, so a stop is never a state the system has to be rescued from.
   case "stop": {
     const { runs } = readState(path);
     for (const run of runs) {
       killRun(run.pid);
-      console.log(`killed #${run.issue} (pid ${run.pid})`);
+      console.log(`killed ${runName(run)} (pid ${run.pid})`);
     }
     console.log(`${runs.length} Run(s) killed. Run a tick to settle their Tickets.`);
     break;

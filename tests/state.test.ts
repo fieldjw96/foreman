@@ -18,6 +18,26 @@ describe("state file", () => {
     expect(readState(path).runs).toEqual(runs);
   });
 
+  // The state file on the server was written before Scouts existed. Its Runs have no kind,
+  // and must still load as Ticket Runs rather than being dropped on the next tick.
+  it("reads a pre-Scout state file, and round-trips Scouts and the scouted map", () => {
+    const path = join(tmp(), "state.json");
+    writeFileSync(path, JSON.stringify({ runs: [{
+      repo: "o/r", issue: 7, pid: 1, branch: "ticket/7",
+      worktree: "w", logFile: "l", startedAt: "2026-09-10T12:00:00.000Z",
+    }] }));
+    const old = readState(path);
+    expect(old.runs[0]).toMatchObject({ issue: 7 });
+    expect(old.runs[0]?.kind).toBeUndefined();
+
+    const scout = {
+      kind: "scout" as const, repo: "o/r", date: "2026-10-23", pid: 2,
+      worktree: "s", logFile: "sl", startedAt: "2026-10-23T08:00:00.000Z",
+    };
+    writeState(path, { runs: [...old.runs, scout], scouted: { "o/r": "2026-10-23" } });
+    expect(readState(path)).toEqual({ runs: [...old.runs, scout], scouted: { "o/r": "2026-10-23" } });
+  });
+
   it("creates the directory it is asked to write into", () => {
     const path = join(tmp(), "nested", "deep", "state.json");
     writeState(path, { runs: [] });

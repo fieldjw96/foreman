@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildFixPrompt, buildPrompt } from "../src/prompt.ts";
+import { buildFixPrompt, buildPrompt, buildScoutPrompt } from "../src/prompt.ts";
+import { parsePitches, PITCHES_START, PITCHES_END } from "../src/scout.ts";
+import { SCOUT_TOOLS } from "../src/launch.ts";
 import type { Ticket } from "../src/gh.ts";
 
 const context = {
@@ -161,5 +163,42 @@ describe("buildPrompt", () => {
     expect(buildPrompt(ticket, "ticket/121", "main")).toContain(
       "Do not run the repo's browser or end-to-end suites locally",
     );
+  });
+});
+
+describe("buildScoutPrompt", () => {
+  const prompt = buildScoutPrompt("fieldjw96/caddie", "2026-10-23");
+
+  it("names the repo and the day, and asks for exactly three", () => {
+    expect(prompt).toContain("fieldjw96/caddie");
+    expect(prompt).toContain("2026-10-23");
+    expect(prompt).toContain("exactly 3");
+  });
+
+  // Rejections are the Scout's only memory, so it must be told where they are.
+  it("points the Scout at every past Pitch, rejected ones included", () => {
+    expect(prompt).toContain("--label pitch --state all");
+    expect(prompt).toContain("not planned");
+  });
+
+  it("forbids pitching against a recorded decision", () => {
+    expect(prompt).toMatch(/ADR/);
+    expect(prompt).toContain("never pitch against one");
+  });
+
+  // The example in the prompt sits between the markers, so the parser must not mistake the
+  // prompt quoted back for an answer.
+  it("does not parse as a valid set of Pitches if the Scout merely echoes it", () => {
+    expect(prompt).toContain(PITCHES_START);
+    expect(prompt).toContain(PITCHES_END);
+    expect(parsePitches(prompt).ok).toBe(false);
+  });
+
+  it("gives the Scout no way to change the repo", () => {
+    const tools = SCOUT_TOOLS.split(",");
+    expect(tools).not.toContain("Write");
+    expect(tools).not.toContain("Edit");
+    expect(tools).not.toContain("Bash");
+    expect(tools.filter((t) => t.startsWith("Bash(")).every((t) => /^Bash\((gh (issue|pr) (list|view)|git (log|show)):\*\)$/.test(t))).toBe(true);
   });
 });

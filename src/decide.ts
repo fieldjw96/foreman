@@ -1,6 +1,7 @@
 import type { Ticket } from "./gh.ts";
 import type { LiveRun } from "./state.ts";
 import { ageMinutes } from "./state.ts";
+import { isTicketRun } from "./scout.ts";
 import { isDispatchable, complexityOf } from "./labels.ts";
 import type { Complexity } from "./config.ts";
 
@@ -49,7 +50,7 @@ export function chooseTickets(
   slots: number,
   defaultComplexity: Complexity,
 ): Ticket[] {
-  const busy = new Set(live.map((r) => `${r.repo}#${r.issue}`));
+  const busy = new Set(live.filter(isTicketRun).map((r) => `${r.repo}#${r.issue}`));
   return tickets
     .filter((t) => isDispatchable(t.labels) && !blockersOpen(t) && !busy.has(`${t.repo}#${t.number}`))
     .sort((a, b) => {

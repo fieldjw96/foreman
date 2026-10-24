@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { openSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import type { Config } from "./config.ts";
 import type { Ticket } from "./gh.ts";
 import { loadRunSecrets } from "./secrets.ts";
-import { buildPrompt } from "./prompt.ts";
+import { buildPrompt, buildScoutPrompt } from "./prompt.ts";
 import { complexityOf } from "./labels.ts";
 
 export const ALLOWED_TOOLS = [
@@ -17,7 +17,32 @@ export function logPath(worktreeRoot: string, issue: number, startedAt: Date): s
   return join(worktreeRoot, "logs", `ticket-${issue}-${stamp}.log`);
 }
 
+export function scoutLogPath(worktreeRoot: string, repo: string, startedAt: Date): string {
+  const stamp = startedAt.toISOString().replace(/[:.]/g, "-");
+  return join(worktreeRoot, "logs", `scout-${repo.split("/")[1] ?? repo}-${stamp}.log`);
+}
+
+/**
+ * A Scout reads and reports; it does not write. No Write or Edit, and its shell reaches only
+ * the read-only gh and git commands it needs for history. It prints its Pitches rather than
+ * writing them to a file, so it needs nothing that could change the worktree at all.
+ */
+export const SCOUT_TOOLS = [
+  "Read", "Glob", "Grep", "WebFetch", "WebSearch",
+  "Bash(gh issue list:*)", "Bash(gh issue view:*)", "Bash(gh pr list:*)", "Bash(gh pr view:*)",
+  "Bash(git log:*)", "Bash(git show:*)",
+].join(",");
+
 export type LaunchResult = { pid: number; logFile: string };
+
+type Launch = {
+  prompt: string;
+  model: string;
+  cwd: string;
+  logFile: string;
+  allowedTools: string;
+  env: NodeJS.ProcessEnv;
+};
 
 /**
  * The whole reason this repo exists. The old dispatcher invoked claude synchronously, so a
@@ -25,6 +50,32 @@ export type LaunchResult = { pid: number; logFile: string };
  * "concurrent" Runs were three Runs one after another inside one very long tick. Here the
  * child is detached and unref'd, the tick returns in seconds, and concurrency is real.
  */
+function spawnClaude(launch: Launch): LaunchResult {
+  mkdirSync(dirname(launch.logFile), { recursive: true });
+  const fd = openSync(launch.logFile, "a");
+
+  const child = spawn(
+    process.platform === "win32" ? "claude.exe" : "claude",
+    [
+      "-p", launch.prompt,
+      "--model", launch.model,
+      "--permission-mode", "acceptEdits",
+      "--allowedTools", launch.allowedTools,
+    ],
+    {
+      cwd: launch.cwd,
+      env: launch.env,
+      detached: true,
+      stdio: ["ignore", fd, fd],
+      windowsHide: true,
+    },
+  );
+
+  if (child.pid === undefined) throw new Error(`failed to launch claude in ${launch.cwd}`);
+  child.unref();
+  return { pid: child.pid, logFile: launch.logFile };
+}
+
 export function launchRun(
   config: Config,
   ticket: Ticket,
@@ -37,31 +88,29 @@ export function launchRun(
   // is reaped, timed out and settled by exactly the same code.
   promptOverride?: string,
 ): LaunchResult {
-  const model = config.models[complexityOf(ticket.labels, config.defaultComplexity)];
-  const logFile = logPath(config.worktreeRoot, ticket.number, startedAt);
-  mkdirSync(join(config.worktreeRoot, "logs"), { recursive: true });
-  const fd = openSync(logFile, "a");
+  return spawnClaude({
+    prompt: promptOverride ?? buildPrompt(ticket, branch, baseBranch),
+    model: config.models[complexityOf(ticket.labels, config.defaultComplexity)],
+    cwd: worktree,
+    logFile: logPath(config.worktreeRoot, ticket.number, startedAt),
+    allowedTools: ALLOWED_TOOLS,
+    env: { ...process.env, ...loadRunSecrets(config.secretsDir, ticket.repo) },
+  });
+}
 
-  const child = spawn(
-    process.platform === "win32" ? "claude.exe" : "claude",
-    [
-      "-p", promptOverride ?? buildPrompt(ticket, branch, baseBranch),
-      "--model", model,
-      "--permission-mode", "acceptEdits",
-      "--allowedTools", ALLOWED_TOOLS,
-    ],
-    {
-      cwd: worktree,
-      env: { ...process.env, ...loadRunSecrets(config.secretsDir, ticket.repo) },
-      detached: true,
-      stdio: ["ignore", fd, fd],
-      windowsHide: true,
-    },
-  );
-
-  if (child.pid === undefined) throw new Error(`failed to launch a Run for #${ticket.number}`);
-  child.unref();
-  return { pid: child.pid, logFile };
+/**
+ * Judgement is the whole job, so a Scout always gets the strongest model. It gets none of the
+ * repo's secrets: it reads code and GitHub, and the gh login it needs is the server's own.
+ */
+export function launchScout(config: Config, repo: string, worktree: string, date: string, startedAt: Date): LaunchResult {
+  return spawnClaude({
+    prompt: buildScoutPrompt(repo, date),
+    model: config.models.high,
+    cwd: worktree,
+    logFile: scoutLogPath(config.worktreeRoot, repo, startedAt),
+    allowedTools: SCOUT_TOOLS,
+    env: process.env,
+  });
 }
 
 /**
