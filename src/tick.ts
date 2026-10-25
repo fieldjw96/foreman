@@ -42,7 +42,17 @@ import {
   expiredPitches,
   EXPIRED_COMMENT,
 } from "./scout.ts";
-import { classifyRun, freeSlots, chooseTickets, outcomeOf } from "./decide.ts";
+import {
+  classifyRun,
+  freeSlots,
+  chooseTickets,
+  outcomeOf,
+  announcementFor,
+  announceTtlSeconds,
+  scoutDoing,
+  type Announcement,
+} from "./decide.ts";
+import { announceScout, endScoutShift } from "./presence.ts";
 import { acquireLock, releaseLock, lockPath } from "./lock.ts";
 import { listOpenPullRequests, reviewFindings, failedCheckLog, type OpenPullRequest } from "./pulls.ts";
 import { chooseFixes, classifyPullRequest } from "./fix.ts";
@@ -111,7 +121,12 @@ async function settle(config: Config, run: TicketRun, timedOut: boolean): Promis
  * Yesterday's undecided Pitches are expired only once today's are known to be good. A Scout
  * that failed leaves Jack yesterday's Pitches to decide on rather than nothing at all.
  */
-async function settleScout(config: Config, run: ScoutRun, timedOut: boolean): Promise<void> {
+async function settleScout(
+  config: Config,
+  run: ScoutRun,
+  timedOut: boolean,
+  presence: Announcement,
+): Promise<void> {
   try {
     const parsed = parsePitches(timedOut ? "" : readFileSync(run.logFile, "utf8"));
     if (!parsed.ok) {
@@ -129,6 +144,10 @@ async function settleScout(config: Config, run: ScoutRun, timedOut: boolean): Pr
       log(`  filed Pitch #${number} on ${run.repo}: ${pitch.title}`);
     }
   } finally {
+    // Before the worktree, and outside the try above, so a Scout that threw while filing
+    // still leaves the Kitchen rather than standing there until its TTL runs out.
+    const problem = await endScoutShift(presence);
+    if (problem && presence.announce) log(`  could not end the Kitchen Shift: ${problem}`);
     await removeWorktree(cloneFor(config, run.repo), run.worktree);
   }
 }
@@ -168,6 +187,15 @@ async function runTick(config: Config): Promise<void> {
   const scouted = { ...(state.scouted ?? {}) };
   const save = () => writeState(path, { runs: stillRunning, scouted });
 
+  // Decided once, so a tick that starts and settles several Scouts says it at most once.
+  const presence = announcementFor(process.env);
+  let saidSilent = false;
+  const noteIfSilent = () => {
+    if (presence.announce || saidSilent) return;
+    saidSilent = true;
+    log(`  not announcing to the Kitchen: ${presence.why}`);
+  };
+
   for (const run of state.runs) {
     const verdict = classifyRun(run, isProcessAlive(run.pid), config.runTimeoutMinutes);
     if (verdict === "alive") {
@@ -176,7 +204,10 @@ async function runTick(config: Config): Promise<void> {
     }
     if (verdict === "timed-out") killRun(run.pid);
     try {
-      if (isScout(run)) await settleScout(config, run, verdict === "timed-out");
+      if (isScout(run)) {
+        noteIfSilent();
+        await settleScout(config, run, verdict === "timed-out", presence);
+      }
       else await settle(config, run, verdict === "timed-out");
     } catch (err) {
       // Leave it out of state either way. A Run whose settle failed is finished; retrying
@@ -403,6 +434,14 @@ async function runTick(config: Config): Promise<void> {
       });
       remaining -= 1;
       log(`  started the ${repo.name} Scout as pid ${pid}`);
+      noteIfSilent();
+      const problem = await announceScout(
+        presence,
+        scoutDoing(repo.name),
+        repo.name,
+        announceTtlSeconds(config.runTimeoutMinutes),
+      );
+      if (problem && presence.announce) log(`  could not announce the Scout: ${problem}`);
     } catch (err) {
       log(`  could not start the ${repo.name} Scout: ${(err as Error).message}`);
       await removeWorktree(repo.clonePath, worktree).catch(() => {});
