@@ -119,16 +119,27 @@ describe("pitch issues", () => {
 describe("expiredPitches", () => {
   const at = (y: number, m: number, d: number) => new Date(y, m - 1, d, 9).toISOString();
 
+  const now = new Date(2026, 9, 23, 0, 10);
+
   it("expires yesterday's undecided Pitches", () => {
-    expect(expiredPitches([{ number: 5, labels: ["pitch"], createdAt: at(2026, 10, 22) }], "2026-10-23")).toEqual([5]);
+    expect(expiredPitches([{ number: 5, labels: ["pitch"], createdAt: at(2026, 10, 22) }], "2026-10-23", now)).toEqual([5]);
   });
 
   it("keeps a picked Pitch however old it is", () => {
-    expect(expiredPitches([{ number: 5, labels: ["pitch", PITCH_PICKED], createdAt: at(2026, 10, 1) }], "2026-10-23")).toEqual([]);
+    expect(expiredPitches([{ number: 5, labels: ["pitch", PITCH_PICKED], createdAt: at(2026, 10, 1) }], "2026-10-23", now)).toEqual([]);
   });
 
   it("keeps today's Pitches", () => {
-    expect(expiredPitches([{ number: 6, labels: ["pitch"], createdAt: at(2026, 10, 23) }], "2026-10-23")).toEqual([]);
+    expect(expiredPitches([{ number: 6, labels: ["pitch"], createdAt: at(2026, 10, 23) }], "2026-10-23", now)).toEqual([]);
+  });
+
+  // The first night: filed at 10pm, the next Scout ran just after midnight, and the set was
+  // gone before morning.
+  it("keeps a Pitch filed late yesterday until it has been open twelve hours", () => {
+    const lateLastNight = new Date(2026, 9, 22, 22, 0).toISOString();
+    const pitches = [{ number: 7, labels: ["pitch"], createdAt: lateLastNight }];
+    expect(expiredPitches(pitches, "2026-10-23", now)).toEqual([]);
+    expect(expiredPitches(pitches, "2026-10-24", new Date(2026, 9, 24, 0, 10))).toEqual([7]);
   });
 });
 

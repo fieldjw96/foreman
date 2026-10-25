@@ -142,13 +142,28 @@ export function pitchBody(pitch: Pitch, date: string): string {
 export type OpenPitch = { number: number; labels: string[]; createdAt: string };
 
 /**
- * The open Pitches that nobody decided on before today. They are closed when the new day's
- * Pitches land, so the backlog Jack faces is never more than one day deep. A picked Pitch is
- * waiting on a conversation, not on a decision, and is left alone.
+ * How long a Pitch is guaranteed to stay open, whatever the calendar says.
+ *
+ * An earlier calendar date alone is not enough. On the first night, a Scout filed at 10pm,
+ * a second one ran just after midnight, and the first set was closed as expired two hours
+ * after it was filed, while Jack was asleep. Twelve hours means any Pitch filed in the
+ * evening survives into the next waking day. A normal day-to-day cycle is about 24 hours,
+ * so this never holds a Pitch past its usual expiry.
  */
-export function expiredPitches(open: OpenPitch[], today: string): number[] {
+export const PITCH_MIN_OPEN_HOURS = 12;
+
+/**
+ * The open Pitches that nobody decided on: filed before today, and open for at least
+ * PITCH_MIN_OPEN_HOURS. They are closed when the new day's Pitches land, so the backlog
+ * Jack faces is never more than a day or so deep. A picked Pitch is waiting on a
+ * conversation, not on a decision, and is left alone.
+ */
+export function expiredPitches(open: OpenPitch[], today: string, now: Date = new Date()): number[] {
+  const minAgeMs = PITCH_MIN_OPEN_HOURS * 60 * 60 * 1000;
   return open
-    .filter((p) => !p.labels.includes(PITCH_PICKED) && localDate(new Date(p.createdAt)) < today)
+    .filter((p) => !p.labels.includes(PITCH_PICKED))
+    .filter((p) => localDate(new Date(p.createdAt)) < today)
+    .filter((p) => now.getTime() - new Date(p.createdAt).getTime() >= minAgeMs)
     .map((p) => p.number);
 }
 
