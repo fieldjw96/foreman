@@ -74,3 +74,40 @@ export function outcomeOf(
   if (pullRequest !== null) return "review";
   return priorFailures + 1 >= maxAttempts ? "needs-human" : "retry";
 }
+
+/**
+ * Whether a Scout may announce itself to jack-field's Kitchen, and with what.
+ *
+ * Read from foreman's own environment and nowhere else: an announcement is foreman
+ * speaking, not a Run, so `loadRunSecrets` and the worktree have no part in it.
+ *
+ * With either value missing foreman stays silent rather than guessing a URL.
+ * jack-field.com redirects the apex to www, and fetch drops the Authorization header
+ * across that change of origin, so a guessed default would be rejected on every beat and
+ * the only symptom would be a Hand that never wakes.
+ */
+export type Announcement =
+  | { announce: false; why: string }
+  | { announce: true; url: string; token: string };
+
+export function announcementFor(env: NodeJS.ProcessEnv): Announcement {
+  const url = env.JACK_FIELD_URL?.trim();
+  const token = env.PRESENCE_TOKEN?.trim();
+  if (!url && !token) return { announce: false, why: "JACK_FIELD_URL and PRESENCE_TOKEN are unset" };
+  if (!url) return { announce: false, why: "JACK_FIELD_URL is unset" };
+  if (!token) return { announce: false, why: "PRESENCE_TOKEN is unset" };
+  return { announce: true, url: url.replace(/\/+$/, ""), token };
+}
+
+/**
+ * A Shift should never outlast the Run it describes. The Kitchen's own schema accepts
+ * thirty seconds to an hour, so a longer timeout is clamped rather than rejected.
+ */
+export function announceTtlSeconds(runTimeoutMinutes: number): number {
+  return Math.min(3600, Math.max(30, Math.round(runTimeoutMinutes * 60)));
+}
+
+/** The line shown under the character. Capped because the Kitchen rejects a longer one. */
+export function scoutDoing(repo: string): string {
+  return `Scouting ${repo.split("/")[1] ?? repo}`.slice(0, 60);
+}
