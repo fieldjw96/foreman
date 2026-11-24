@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   needsScout,
+  isScoutDay,
   parsePitches,
   pitchBody,
   pitchTitle,
@@ -42,23 +43,39 @@ const pitch = (over: Partial<Pitch> = {}): Pitch => ({
 const output = (body: unknown, prose = "Here are today's Pitches.") =>
   `${prose}\n${PITCHES_START}\n${typeof body === "string" ? body : JSON.stringify(body)}\n${PITCHES_END}\n`;
 
+// 2026-10-19 and 2026-10-26 are Mondays, 2026-10-22 a Thursday, 2026-10-23 a Friday.
+describe("isScoutDay", () => {
+  it("is true on Mondays and Thursdays only", () => {
+    expect(isScoutDay("2026-10-19")).toBe(true);
+    expect(isScoutDay("2026-10-22")).toBe(true);
+    for (const d of ["2026-10-20", "2026-10-21", "2026-10-23", "2026-10-24", "2026-10-25"]) {
+      expect(isScoutDay(d)).toBe(false);
+    }
+  });
+});
+
 describe("needsScout", () => {
   it("scouts a repo that has not been scouted today", () => {
-    expect(needsScout("o/r", "2026-10-23", { "o/r": "2026-10-22" }, [])).toBe(true);
-    expect(needsScout("o/r", "2026-10-23", {}, [])).toBe(true);
+    expect(needsScout("o/r", "2026-10-22", { "o/r": "2026-10-19" }, [])).toBe(true);
+    expect(needsScout("o/r", "2026-10-22", {}, [])).toBe(true);
+  });
+
+  it("does not scout on a day that is not a Scout day, however long since the last one", () => {
+    expect(needsScout("o/r", "2026-10-23", { "o/r": "2026-10-01" }, [])).toBe(false);
+    expect(needsScout("o/r", "2026-10-23", {}, [])).toBe(false);
   });
 
   // The day is recorded at launch, so a Scout that failed is not relaunched every tick.
   it("does not scout a repo twice in one day, even if the first one failed", () => {
-    expect(needsScout("o/r", "2026-10-23", { "o/r": "2026-10-23" }, [])).toBe(false);
+    expect(needsScout("o/r", "2026-10-22", { "o/r": "2026-10-22" }, [])).toBe(false);
   });
 
   it("does not start a second Scout while one is running, even across midnight", () => {
-    expect(needsScout("o/r", "2026-10-24", { "o/r": "2026-10-23" }, [scout()])).toBe(false);
+    expect(needsScout("o/r", "2026-10-26", { "o/r": "2026-10-22" }, [scout()])).toBe(false);
   });
 
   it("is not held up by a Ticket Run or another repo's Scout", () => {
-    expect(needsScout("o/r", "2026-10-23", {}, [ticketRun(), scout({ repo: "o/other" })])).toBe(true);
+    expect(needsScout("o/r", "2026-10-22", {}, [ticketRun(), scout({ repo: "o/other" })])).toBe(true);
   });
 });
 

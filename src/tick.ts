@@ -118,8 +118,8 @@ async function settle(config: Config, run: TicketRun, timedOut: boolean): Promis
 /**
  * Ends a Scout: file its Pitches, if it produced a valid set, and take the worktree back.
  *
- * Yesterday's undecided Pitches are expired only once today's are known to be good. A Scout
- * that failed leaves Jack yesterday's Pitches to decide on rather than nothing at all.
+ * The previous batch's undecided Pitches are expired only once this batch is known to be good.
+ * A Scout that failed leaves Jack the previous batch to decide on rather than nothing at all.
  */
 async function settleScout(
   config: Config,
@@ -411,7 +411,8 @@ async function runTick(config: Config): Promise<void> {
 
   // Scouts come last. They suggest work rather than doing it, and every Run draws on the same
   // subscription window, so a Scout only ever takes a slot no Ticket wanted. Overnight that is
-  // most of them, which is when the next day's Pitches should be written anyway.
+  // most of them, which is when a Scout day's Pitches should be written anyway. needsScout
+  // answers false on any other day.
   const today = localDate();
   for (const repo of config.repos) {
     if (remaining === 0) break;
