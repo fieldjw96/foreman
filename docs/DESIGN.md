@@ -140,8 +140,8 @@ this hiding". Nothing is stored: quiet is measured from the newest thing that al
 to the pull request, which keeps GitHub the only durable state, and foreman finds its own
 previous report by a marker comment the same way it already finds its fix Runs.
 
-**Suggesting work is a Run, and it comes last.** A Scout proposes three Pitches a day for each
-repo, so the queue does not run dry while waiting on Jack to think of the next thing. It is a
+**Suggesting work is a Run, and it comes last.** A Scout proposes three Pitches for each repo
+on Mondays and Thursdays, so the queue does not run dry while waiting on Jack to think of the next thing. It is a
 Run rather than a separate scheduled job because every Run draws on one subscription window,
 and only the tick knows how much of it is in use. It takes a slot only once fixes and
 `status:ready` Tickets have taken theirs, so it never competes with work that already has a
@@ -159,11 +159,17 @@ the same role an opened pull request plays for a Ticket Run. Printing rather tha
 file also means the Scout needs no write tool at all. Its shell is limited to read-only `gh`
 and `git` commands.
 
-**One Scout attempt per repo per day, recorded at launch.** Recording success instead would let
-a Scout that always fails relaunch every five minutes and burn the window. The day lives in
-the state file next to the pids, and losing it costs at most one extra Scout. Yesterday's
-undecided Pitches are expired only once today's are known to be good, so a failed Scout
-leaves Jack with yesterday's Pitches rather than none.
+**Two Scout days a week, set in code.** Until 2026-11-24 a Scout ran every day. Most Pitches
+expired undecided and the good ones were re-raised three to five times before anyone read
+them, so Jack moved to Mondays and Thursdays. It is a constant, `SCOUT_WEEKDAYS`, not a
+config key, for the reason this repo gives for every other number: change it in code with a
+test. Jack asks the product agent directly when he wants Pitches between batches.
+
+**One Scout attempt per repo per Scout day, recorded at launch.** Recording success instead
+would let a Scout that always fails relaunch every five minutes and burn the window. The day
+lives in the state file next to the pids, and losing it costs at most one extra Scout. The
+previous batch's undecided Pitches are expired only once the new batch is known to be good,
+so a failed Scout leaves Jack with the previous batch rather than none.
 
 **Pitches never become Tickets on their own.** A Pitch carries no Acceptance Criteria, on
 purpose. Step 1 of the workflow, talking until a feature is clear, is the part that matters,

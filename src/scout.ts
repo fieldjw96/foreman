@@ -12,6 +12,20 @@ export const PITCHES_START = "<<<PITCHES";
 export const PITCHES_END = "PITCHES>>>";
 export const PITCHES_PER_DAY = 3;
 
+/**
+ * The weekdays a Scout runs, as `Date.getDay()` numbers: Monday and Thursday. Daily Pitches
+ * mostly expired undecided, and the ones worth having were re-raised three to five times
+ * before anyone read them, so Jack moved to two batches a week on 2026-11-24. Pitches outside
+ * these days come from asking the product agent directly, not from foreman.
+ */
+export const SCOUT_WEEKDAYS: readonly number[] = [1, 4];
+
+/** Whether `date`, a local `YYYY-MM-DD`, falls on a Scout day. */
+export function isScoutDay(date: string, weekdays: readonly number[] = SCOUT_WEEKDAYS): boolean {
+  const day = new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)));
+  return weekdays.includes(day.getDay());
+}
+
 export const PITCH_SIZES = ["small", "medium", "large"] as const;
 export const PITCH_KINDS = ["fix", "feature"] as const;
 
@@ -46,9 +60,9 @@ export const runName = (run: LiveRun): string =>
   isScout(run) ? `${run.repo} Scout` : `${run.repo}#${run.issue}`;
 
 /**
- * One Scout per repo per day, and only one at a time. The day is recorded when a Scout
- * *launches*, not when it succeeds, so a Scout that keeps failing costs one attempt a day
- * rather than one every five minutes until the quota is gone.
+ * One Scout per repo per Scout day, and only one at a time. The day is recorded when a Scout
+ * *launches*, not when it succeeds, so a Scout that keeps failing costs one attempt a Scout
+ * day rather than one every five minutes until the quota is gone.
  */
 export function needsScout(
   repo: string,
@@ -56,6 +70,7 @@ export function needsScout(
   scouted: Record<string, string>,
   live: LiveRun[],
 ): boolean {
+  if (!isScoutDay(today)) return false;
   if (scouted[repo] === today) return false;
   return !live.some((run) => isScout(run) && run.repo === repo);
 }
@@ -135,7 +150,7 @@ export function pitchBody(pitch: Pitch, date: string): string {
     `This is a Pitch, not a Ticket: foreman never builds it. Add \`${PITCH_PICKED}\` to keep it,`,
     "and it becomes a Ticket through `ticket-writer`. Close it as not planned to reject it,",
     "which is what the next Scout learns from. Left undecided, it is closed as expired when",
-    "the next day's Pitches are filed.",
+    "the next Pitches are filed (Scouts run on Mondays and Thursdays).",
   ].join("\n");
 }
 
@@ -154,8 +169,8 @@ export const PITCH_MIN_OPEN_HOURS = 12;
 
 /**
  * The open Pitches that nobody decided on: filed before today, and open for at least
- * PITCH_MIN_OPEN_HOURS. They are closed when the new day's Pitches land, so the backlog
- * Jack faces is never more than a day or so deep. A picked Pitch is waiting on a
+ * PITCH_MIN_OPEN_HOURS. They are closed when the next Scout day's Pitches land, so the
+ * backlog Jack faces is never more than one batch deep. A picked Pitch is waiting on a
  * conversation, not on a decision, and is left alone.
  */
 export function expiredPitches(open: OpenPitch[], today: string, now: Date = new Date()): number[] {
@@ -168,4 +183,4 @@ export function expiredPitches(open: OpenPitch[], today: string, now: Date = new
 }
 
 export const EXPIRED_COMMENT =
-  "Expired: closed undecided when the next day's Pitches were filed. Reopen it to bring it back.";
+  "Expired: closed undecided when the next Pitches were filed. Reopen it to bring it back.";

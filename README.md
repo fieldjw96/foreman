@@ -44,7 +44,7 @@ comes after all of it.
 
 ## Pitches
 
-Once a day per repo, a **Scout** reads the repo (docs, ADRs, code, open and merged work,
+On Mondays and Thursdays, once per repo, a **Scout** reads the repo (docs, ADRs, code, open and merged work,
 every past Pitch) and proposes three fixes or features. A Scout is a Run like any other:
 it takes a slot, it is timed out, and it is reaped. It only ever gets a slot that no Ticket
 wanted, so it usually runs overnight. It changes nothing. Its tools are read-only, and it
@@ -52,15 +52,15 @@ prints its Pitches rather than filing them. When the Scout is reaped, foreman ch
 are exactly three well-formed Pitches, then files each as an issue labelled `pitch`.
 
 A Pitch is a short case (problem, proposal, evidence, size), not a Ticket, and foreman
-never builds one. Each day Jack:
+never builds one. For each batch Jack:
 
 - **keeps** a Pitch by adding `pitch:picked`, then turns it into a Ticket with
   `ticket-writer`, which closes the Pitch;
 - **rejects** a Pitch by closing it as not planned. Rejections are what the next Scout reads
   to learn what not to suggest;
-- **ignores** a Pitch, and it is closed as expired when the next day's Pitches are filed.
+- **ignores** a Pitch, and it is closed as expired when the next batch is filed.
 
-A Scout gets one attempt per repo per day. One that fails files nothing, logs why, and
+A Scout gets one attempt per repo per Scout day (`SCOUT_WEEKDAYS` in `src/scout.ts`). One that fails files nothing, logs why, and
 leaves the previous day's Pitches open.
 
 ## Ticket lifecycle
